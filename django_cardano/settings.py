@@ -3,7 +3,7 @@ from django.test.signals import setting_changed
 from django.utils.module_loading import import_string
 
 
-USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO_SETTINGS', None)
+USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
     'NETWORK': 'mainnet',
@@ -25,7 +25,7 @@ def import_from_string(val, setting_name):
     try:
         return import_string(val)
     except ImportError as e:
-        msg = "Could not import '%s' for API setting '%s'. %s: %s." % (val, setting_name, e.__class__.__name__, e)
+        msg = "Could not import '%s' for DJANGO_CARDANO setting '%s'. %s: %s." % (val, setting_name, e.__class__.__name__, e)
         raise ImportError(msg)
 
 
@@ -69,12 +69,12 @@ class DjangoCardanoSettings:
     @property
     def user_settings(self):
         if not hasattr(self, '_user_settings'):
-            self._user_settings = getattr(settings, 'REST_FRAMEWORK', {})
+            self._user_settings = getattr(settings, 'DJANGO_CARDANO', {})
         return self._user_settings
 
     def __getattr__(self, attr):
         if attr not in self.defaults:
-            raise AttributeError("Invalid API setting: '%s'" % attr)
+            raise AttributeError("Invalid application setting: '%s'" % attr)
 
         try:
             # Check if present in user settings
@@ -115,7 +115,7 @@ def reload_settings(*args, **kwargs):  # pragma: no cover
 
     setting, value = kwargs['setting'], kwargs['value']
 
-    if setting == 'DJANGO_CARDANO_SETTINGS':
+    if setting == 'DJANGO_CARDANO':
         django_cardano_settings = DjangoCardanoSettings(value, DEFAULTS, IMPORT_STRINGS)
 
 

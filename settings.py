@@ -73,6 +73,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-DJANGO_CARDANO_SETTINGS = {
+# ------------------------------------------------------------------------------
+
+DJANGO_CARDANO = {
     'NETWORK': '--testnet-magic 1097911063',
 }
