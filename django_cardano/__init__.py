@@ -76,17 +76,17 @@ class Cardano:
         # Note: their stored values will be encrypted
         with open(signing_key_path, 'r') as signing_key_file:
             wallet.payment_signing_key = json.load(signing_key_file)
-        os.remove(signing_key_path)
+            os.remove(signing_key_path)
         with open(verification_key_path, 'r') as verification_key_file:
             wallet.payment_verification_key = json.load(verification_key_file)
-        os.remove(verification_key_path)
+            os.remove(verification_key_path)
 
         with open(stake_signing_key_path, 'r') as stake_signing_key_file:
             wallet.stake_signing_key = json.load(stake_signing_key_file)
-        os.remove(stake_signing_key_path)
+            os.remove(stake_signing_key_path)
         with open(stake_verification_key_path, 'r') as stake_verification_key_file:
             wallet.stake_verification_key = json.load(stake_verification_key_file)
-        os.remove(stake_verification_key_path)
+            os.remove(stake_verification_key_path)
 
         wallet.save()
 

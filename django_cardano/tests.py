@@ -1,7 +1,11 @@
+import os
+from pathlib import Path
+
 from django.core import management
 from django.test import TestCase
 
 from django_cardano import Cardano, CardanoError
+from django_cardano.models import Wallet
 
 
 class DjangoCardanoTestCase(TestCase):
@@ -10,6 +14,12 @@ class DjangoCardanoTestCase(TestCase):
         super().setUpClass()
 
         cls.cardano = Cardano()
+
+        test_wallet_data_path = os.environ.get('TEST_WALLET_DATA_PATH')
+        if test_wallet_data_path:
+            if not os.path.exists(test_wallet_data_path):
+                raise ValueError(f'Invalid wallet data path: {test_wallet_data_path}')
+            cls.wallet = Wallet.objects.create_from_path(Path(test_wallet_data_path))
 
     def test_query_tip(self):
         tip_info = self.cardano.query_tip()
@@ -30,3 +40,6 @@ class DjangoCardanoTestCase(TestCase):
             self.assertEqual(address_info['address'], wallet.payment_address)
         except CardanoError as e:
             print(e)
+
+    def test_send_payment(self):
+        print(self.wallet)
