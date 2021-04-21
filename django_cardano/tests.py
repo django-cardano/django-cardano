@@ -22,7 +22,11 @@ class DjangoCardanoTestCase(TestCase):
     def test_create_wallet(self):
         try:
             wallet = self.cardano.create_wallet(name='Test Wallet')
-            print(wallet.payment_signing_key)
-            print(wallet.payment_address)
+
+            address_info = self.cardano.address_info(wallet.payment_address)
+            self.assertEqual(address_info['type'], 'payment')
+            self.assertEqual(address_info['encoding'], 'bech32')
+            self.assertEqual(address_info['era'], 'shelley')
+            self.assertEqual(address_info['address'], wallet.payment_address)
         except CardanoError as e:
             print(e)

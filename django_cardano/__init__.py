@@ -60,17 +60,15 @@ class Cardano:
         })
 
         # Create the payment address.
-        self._call_cli('address', 'build', **{
+        wallet.payment_address = self._call_cli('address', 'build', **{
             'payment-verification-key-file': verification_key_path,
             'stake-verification-key-file': stake_verification_key_path,
-            'out-file': payment_address_path,
             'network': settings.NETWORK,
         })
 
         # Create the staking address.
-        self._call_cli('stake-address', 'build', **{
+        wallet.stake_address = self._call_cli('stake-address', 'build', **{
             'stake-verification-key-file': stake_verification_key_path,
-            'out-file': stake_address_path,
             'network': settings.NETWORK,
         })
 
@@ -82,9 +80,6 @@ class Cardano:
         with open(verification_key_path, 'r') as verification_key_file:
             wallet.payment_verification_key = json.load(verification_key_file)
         os.remove(verification_key_path)
-        with open(payment_address_path, 'r') as payment_address_file:
-            wallet.payment_address = payment_address_file.read()
-        os.remove(payment_address_path)
 
         with open(stake_signing_key_path, 'r') as stake_signing_key_file:
             wallet.stake_signing_key = json.load(stake_signing_key_file)
@@ -92,13 +87,15 @@ class Cardano:
         with open(stake_verification_key_path, 'r') as stake_verification_key_file:
             wallet.stake_verification_key = json.load(stake_verification_key_file)
         os.remove(stake_verification_key_path)
-        with open(stake_address_path, 'r') as stake_address_file:
-            wallet.stake_address = stake_address_file.read()
-        os.remove(stake_address_path)
 
         wallet.save()
 
         return wallet
+
+    def address_info(self, address):
+        response = self._call_cli('address', 'info', address=address)
+        return json.loads(response)
+
 
     # --------------------------------------------------------------------------
     def _call_cli(self, *args, **kwargs):
