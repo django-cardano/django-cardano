@@ -51,7 +51,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': PROJECT_PATH / 'db.sqlite3',
-    }
+    },
 }
 
 # Internationalization
@@ -77,6 +77,7 @@ STATIC_URL = '/static/'
 
 DJANGO_CARDANO = {
     'NETWORK': 'testnet',
-    'CARDANO_CLI_PATH': '/home/allan/.local/bin/cardano-cli',
-    'CARDANO_NODE_SOCKET_PATH': '/home/allan/Cardano/relay/db/node.socket',
+    'CLI_PATH': '/home/allan/.local/bin/cardano-cli',
+    'NODE_SOCKET_PATH': '/home/allan/Cardano/relay/db/node.socket',
+    'INTERMEDIATE_FILE_PATH': Path(PROJECT_PATH) / 'intermediate'
 }

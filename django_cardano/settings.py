@@ -6,8 +6,9 @@ from django.utils.module_loading import import_string
 USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
-    'CARDANO_CLI_PATH': '/path/to/cardano-cli',
-    'CARDANO_NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
+    'CLI_PATH': '/path/to/cardano-cli',
+    'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
+    'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
     'NETWORK': 'mainnet',
     'TESTNET_MAGIC': '1097911063',
 }
