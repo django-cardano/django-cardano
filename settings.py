@@ -76,5 +76,7 @@ STATIC_URL = '/static/'
 # ------------------------------------------------------------------------------
 
 DJANGO_CARDANO = {
-    'NETWORK': '--testnet-magic 1097911063',
+    'NETWORK': 'testnet',
+    'CARDANO_CLI_PATH': '/home/allan/.local/bin/cardano-cli',
+    'CARDANO_NODE_SOCKET_PATH': '/home/allan/Cardano/relay/db/node.socket',
 }
