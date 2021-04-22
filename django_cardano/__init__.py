@@ -202,7 +202,7 @@ class Cardano:
         # 8. Clean up intermediate files
         shutil.rmtree(tx_file_directory)
 
-    def mint_native_tokens(self, quantity, asset_name, payment_wallet):
+    def mint_nft(self, asset_name, payment_wallet):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param payment_wallet: Wallet with sufficient funds to mint the token
@@ -240,7 +240,7 @@ class Cardano:
         policy_id = self.call_cli('transaction policyid', **{
             'script-file': policy_script_path
         })
-        mint_argument = f'"{quantity} {policy_id}.{asset_name}"'
+        mint_argument = f'1 {policy_id}.{asset_name}"'
 
         # 3. Build a draft transaction which will be used to calculate minimum fees
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#build-the-raw-transaction

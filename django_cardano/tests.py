@@ -60,10 +60,9 @@ class DjangoCardanoTestCase(TestCase):
         )
         print(response)
 
-    def test_mint_native_tokens(self):
+    def test_mint_nft(self):
         try:
-            self.cardano.mint_native_tokens(
-                quantity=1,
+            self.cardano.mint_nft(
                 asset_name='MMTestToken',
                 payment_wallet=self.wallet
             )
