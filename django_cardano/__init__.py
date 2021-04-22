@@ -82,61 +82,6 @@ class Cardano:
 
         return self.calculate_balance(utxos)
 
-    def create_wallet(self, name):
-        from django_cardano.models import Wallet
-        wallet = Wallet(name=name)
-
-        # Generate the payment signing & verification keys
-        signing_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.signing.key')
-        verification_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.verification.key')
-
-        self.call_cli('address key-gen', **{
-            'signing-key-file': signing_key_path,
-            'verification-key-file': verification_key_path,
-        })
-
-        # Generate the stake signing & verification keys
-        stake_signing_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.stake_signing.key')
-        stake_verification_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.stake_verification.key')
-
-        self.call_cli('stake-address key-gen', **{
-            'signing-key-file': stake_signing_key_path,
-            'verification-key-file': stake_verification_key_path,
-        })
-
-        # Create the payment address.
-        wallet.payment_address = self.call_cli('address build', **{
-            'payment-verification-key-file': verification_key_path,
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': settings.NETWORK,
-        })
-
-        # Create the staking address.
-        wallet.stake_address = self.call_cli('stake-address build', **{
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': settings.NETWORK,
-        })
-
-        # Attach the generated key files to the wallet
-        # Note: their stored values will be encrypted
-        with open(signing_key_path, 'r') as signing_key_file:
-            wallet.payment_signing_key = json.load(signing_key_file)
-            os.remove(signing_key_path)
-        with open(verification_key_path, 'r') as verification_key_file:
-            wallet.payment_verification_key = json.load(verification_key_file)
-            os.remove(verification_key_path)
-
-        with open(stake_signing_key_path, 'r') as stake_signing_key_file:
-            wallet.stake_signing_key = json.load(stake_signing_key_file)
-            os.remove(stake_signing_key_path)
-        with open(stake_verification_key_path, 'r') as stake_verification_key_file:
-            wallet.stake_verification_key = json.load(stake_verification_key_file)
-            os.remove(stake_verification_key_path)
-
-        wallet.save()
-
-        return wallet
-
     def address_info(self, address):
         response = self.call_cli('address info', address=address)
         return json.loads(response)
@@ -255,9 +200,6 @@ class Cardano:
         # Clean up intermediate files
         shutil.rmtree(tx_file_directory)
 
-        return True
-
-
     # --------------------------------------------------------------------------
     def call_cli(self, command, *args, **kwargs):
         """
@@ -315,7 +257,8 @@ class Cardano:
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             raise CardanoError(source_error=e)
 
-    def calculate_balance(self, utxos):
+    @staticmethod
+    def calculate_balance(utxos):
         return sum([int(utxo['Amount']) for utxo in utxos])
 
     def calculate_min_fee(self, **kwargs):

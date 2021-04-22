@@ -30,7 +30,7 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_create_wallet(self):
         try:
-            wallet = self.cardano.create_wallet(name='Test Wallet')
+            wallet = Wallet.objects.create(name='Test Wallet')
 
             address_info = self.cardano.address_info(wallet.payment_address)
             self.assertEqual(address_info['type'], 'payment')
