@@ -13,19 +13,21 @@ MIN_FEE_RE = re.compile(r'(\d+) Lovelace')
 
 
 class CardanoError(RuntimeError):
-    def __init__(self, source_error=None, stderr=None):
-        self.reason = 'Cardano CLI command failed'
+    def __init__(self, reason=None, source_error=None):
+        self.reason = reason if reason else 'Cardano CLI command failed'
         self.return_code = -1
 
         if isinstance(source_error, subprocess.CalledProcessError):
-            self.cmd = ' '.join(source_error.cmd)
+            cmd = source_error.cmd
+            if isinstance(cmd, list):
+                cmd = ' '.join(source_error.cmd)
+            self.cmd = cmd
             self.process_error = source_error
             self.return_code = source_error.returncode
             self.reason = str(source_error.stderr)
         elif isinstance(source_error, FileNotFoundError):
             self.reason = str(source_error)
-        elif stderr:
-            self.reason = str(stderr)
+
 
     def __str__(self) -> str:
         return self.reason
@@ -109,7 +111,7 @@ class Cardano:
         available_balance = self.calculate_balance(utxos)
         if amount_to_send > available_balance:
             error_message = f'Unable to transfer {amount_to_send} from {from_address} to {to_address}. Available funds: {available_balance}'
-            raise CardanoError(stderr=error_message)
+            raise CardanoError(reason=error_message)
 
         amount_being_sent = 0
         tx_in_list = []
@@ -197,7 +199,119 @@ class Cardano:
             'network': settings.NETWORK
         })
 
-        # Clean up intermediate files
+        # 8. Clean up intermediate files
+        shutil.rmtree(tx_file_directory)
+
+    def mint_native_tokens(self, quantity, asset_name, payment_wallet):
+        """
+        https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
+        :param payment_wallet: Wallet with sufficient funds to mint the token
+        :return:
+        """
+        payment_address = payment_wallet.payment_address
+        utxos = self.query_utxos(address=payment_address, order='desc')
+        if len(utxos) < 1:
+            raise CardanoError(f'Address {payment_address} has no available funds')
+        payment_utxo = utxos[0]
+
+        # 1a. Create a directory to hold intermediate files used to create the transaction
+        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, 'token', str(utcnow().timestamp()))
+        os.makedirs(tx_file_directory, 0o755)
+
+        # 1b. Create a minting policy
+        policy_signing_key_path = os.path.join(tx_file_directory, 'policy.skey')
+        policy_verification_key_path = os.path.join(tx_file_directory, 'policy.vkey')
+        policy_script_path = os.path.join(tx_file_directory, 'policy.script')
+        self.call_cli('address key-gen', **{
+            'signing-key-file': policy_signing_key_path,
+            'verification-key-file': policy_verification_key_path,
+        })
+        policy_key_hash = self.call_cli('address key-hash', **{
+            'payment-verification-key-file': policy_verification_key_path,
+
+        })
+        with open(policy_script_path, 'w') as policy_script_file:
+            json.dump({
+                'keyHash': policy_key_hash,
+                'type': 'sig',
+            }, policy_script_file)
+
+        # 2. Mint the new asset
+        policy_id = self.call_cli('transaction policyid', **{
+            'script-file': policy_script_path
+        })
+        mint_argument = f'"{quantity} {policy_id}.{asset_name}"'
+
+        # 3. Build a draft transaction which will be used to calculate minimum fees
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#build-the-raw-transaction
+        draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
+        tx_in = '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx'])
+        tx_out = f'{payment_address}+0+{mint_argument}'
+        self.call_cli('transaction build-raw', **{
+            'mary-era': None,
+            'tx-in': tx_in,
+            'tx-out': tx_out,
+            'fee': 0,
+            'mint': mint_argument,
+            'out-file': draft_transaction_path,
+            'shell': True,
+        })
+
+        # 4. Calculate the minimum fee
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#calculate-the-minimum-fee
+        tx_fee = self.calculate_min_fee(**{
+            'tx-body-file': draft_transaction_path,
+            'tx-in-count': 1,
+            'tx-out-count': 1,
+            'witness-count': 2,
+            'protocol-params-file': self.protocol_parameters_path,
+            'network': settings.NETWORK,
+        })
+
+        # 5. Build the transaction again, this time including the fee
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#build-the-transaction-again
+        # Note that the transaction fee is deducted from the amount ADA being returned
+        raw_transaction_path = os.path.join(tx_file_directory, 'transaction.raw')
+        amount_to_return = payment_utxo['Amount'] - tx_fee
+        tx_out = f'{payment_address}+{amount_to_return}+{mint_argument}'
+        self.call_cli('transaction build-raw', **{
+            'mary-era': None,
+            'tx-in': tx_in,
+            'tx-out': tx_out,
+            'fee': tx_fee,
+            'mint': mint_argument,
+            'out-file': raw_transaction_path,
+            'shell': True,
+        })
+
+        # 6. Sign the transaction
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#sign-the-transaction
+        signed_transaction_path = os.path.join(tx_file_directory, 'transaction.signed')
+
+        signing_key_file_path = os.path.join(tx_file_directory, 'transaction.skey')
+        with open(signing_key_file_path, 'w') as signing_key_file:
+            json.dump(payment_wallet.payment_signing_key, signing_key_file)
+
+        signing_args = [
+            ('signing-key-file', signing_key_file_path),
+            ('signing-key-file', policy_signing_key_path),
+        ]
+
+        self.call_cli('transaction sign', *signing_args, **{
+            'tx-body-file': raw_transaction_path,
+            'script-file': policy_script_path,
+            'out-file': signed_transaction_path,
+            'network': settings.NETWORK
+        })
+
+        # 7. Submit the transaction
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#submit-the-transaction
+        self.call_cli('transaction submit', **{
+            'tx-file': signed_transaction_path,
+            'network': settings.NETWORK
+        })
+
+        # 8. Clean up intermediate files
         shutil.rmtree(tx_file_directory)
 
     # --------------------------------------------------------------------------
@@ -222,14 +336,17 @@ class Cardano:
                 process_args.append(arg[1])
 
         options = dict(kwargs)
-        network = options.get('network')
-        if network:
-            if network == 'mainnet':
+        if 'network' in options:
+            if options['network'] == 'mainnet':
                 process_args.append('--mainnet')
-            elif network == 'testnet':
-                process_args.append('--testnet-magic')
-                process_args.append(settings.TESTNET_MAGIC)
+            elif options['network'] == 'testnet':
+                process_args += ['--testnet-magic', settings.TESTNET_MAGIC]
             del options['network']
+
+        shell = False
+        if 'shell' in options:
+            shell = options['shell']
+            del options['shell']
 
         for option_name, option_value in options.items():
             process_args.append(f'--{option_name}')
@@ -241,21 +358,38 @@ class Cardano:
                 else:
                     process_args.append(str(option_value))
 
-        try:
-            completed_process = subprocess.run(
-                process_args,
-                check=True,
-                capture_output=True,
-                env={'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH}
-            )
-            if completed_process.returncode == 0:
-                return completed_process.stdout.decode().strip()
-            else:
-                stderr = completed_process.stderr.decode().strip()
-                raise CardanoError(stderr=stderr)
+        if shell:
+            try:
+                command = ' '.join(process_args)
+                completed_process = subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    env={'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
+                    shell=True
+                )
+                if completed_process.returncode == 0:
+                    return True
+                else:
+                    raise CardanoError(f'Subprocess command failed: {command}')
+            except (FileNotFoundError, subprocess.CalledProcessError) as e:
+                raise CardanoError(source_error=e)
+        else:
+            try:
+                completed_process = subprocess.run(
+                    process_args,
+                    check=True,
+                    capture_output=True,
+                    env={'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
+                )
+                if completed_process.returncode == 0:
+                    return completed_process.stdout.decode().strip()
+                else:
+                    stderr = completed_process.stderr.decode().strip()
+                    raise CardanoError(stderr=stderr)
 
-        except (FileNotFoundError, subprocess.CalledProcessError) as e:
-            raise CardanoError(source_error=e)
+            except (FileNotFoundError, subprocess.CalledProcessError) as e:
+                raise CardanoError(source_error=e)
 
     @staticmethod
     def calculate_balance(utxos):

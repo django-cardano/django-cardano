@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 
 from django.test import TestCase
@@ -58,3 +59,14 @@ class DjangoCardanoTestCase(TestCase):
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
         print(response)
+
+    def test_mint_native_tokens(self):
+        try:
+            self.cardano.mint_native_tokens(
+                quantity=1,
+                asset_name='MMTestToken',
+                payment_wallet=self.wallet
+            )
+            print('woohoo!')
+        except CardanoError as e:
+            print(e.reason)
