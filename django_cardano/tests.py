@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-from django.core import management
 from django.test import TestCase
 
 from django_cardano import Cardano, CardanoError

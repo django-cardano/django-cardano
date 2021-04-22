@@ -1,22 +1,17 @@
 import os
-
 from pathlib import Path
 
-ENVIRONMENT = os.environ.get('DJANGO_ENV', 'production')
+DEBUG = True
 
+ALLOWED_HOSTS = []
+ENVIRONMENT = os.environ.get('DJANGO_ENV', 'production')
 PROJECT_PATH = Path(__file__).resolve().parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = '2ox@%(q%va#li3__mv7-y^(+w_(_$-0cr^amsrj^n_43z*4t$t'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
-
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
-
     'django_cardano',
 ]
 
@@ -77,7 +72,15 @@ STATIC_URL = '/static/'
 
 DJANGO_CARDANO = {
     'NETWORK': 'testnet',
-    'CLI_PATH': '/home/allan/.local/bin/cardano-cli',
-    'NODE_SOCKET_PATH': '/home/allan/Cardano/relay/db/node.socket',
+    'CLI_PATH': '/Users/allan/.local/bin/cardano-cli',
+    'NODE_SOCKET_PATH': '/Users/allan/Library/Application Support/Daedalus Testnet/cardano-node.socket',
     'INTERMEDIATE_FILE_PATH': Path(PROJECT_PATH) / 'intermediate'
+}
+
+DEFAULTS = {
+    'CLI_PATH': '/path/to/cardano-cli',
+    'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
+    'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
+    'NETWORK': 'testnet',
+    'TESTNET_MAGIC': '1097911063',
 }
