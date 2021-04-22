@@ -30,10 +30,37 @@ class Cardano:
     def __init__(self) -> None:
         super().__init__()
 
+        if not os.path.exists(settings.INTERMEDIATE_FILE_PATH):
+            os.makedirs(settings.INTERMEDIATE_FILE_PATH, 0o755)
 
     def query_tip(self) -> str:
-        response = self._call_cli('query', 'tip', network=settings.NETWORK)
+        response = self.call_cli('query tip', network=settings.NETWORK)
         return json.loads(response)
+
+    def query_utxos(self, address) -> list:
+        response = self.call_cli('query utxo', address=address, network=settings.NETWORK)
+        lines = response.split('\n')
+        headers = lines[0].split()
+
+        utxos = []
+        for line in lines[2:]:
+            line_parts = line.split()
+            utxos.append({
+                headers[0]: line_parts[0],
+                headers[1]: line_parts[1],
+                headers[2]: line_parts[2],
+                'Unit': line_parts[3]
+            })
+
+        return utxos
+
+    def query_balance(self, address) -> int:
+        utxos = self.query_utxos(address)
+
+        if len(utxos) == 0:
+            return 0
+
+        return sum([int(utxo['Amount']) for utxo in utxos])
 
     def create_wallet(self, name):
         from django_cardano.models import Wallet
@@ -44,7 +71,7 @@ class Cardano:
         verification_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.verification.key')
         payment_address_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.payment.addr')
 
-        self._call_cli('address', 'key-gen', **{
+        self.call_cli('address key-gen', **{
             'signing-key-file': signing_key_path,
             'verification-key-file': verification_key_path,
         })
@@ -54,20 +81,20 @@ class Cardano:
         stake_verification_key_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.stake_verification.key')
         stake_address_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, f'{wallet.id}.stake.addr')
 
-        self._call_cli('stake-address', 'key-gen', **{
+        self.call_cli('stake-address key-gen', **{
             'signing-key-file': stake_signing_key_path,
             'verification-key-file': stake_verification_key_path,
         })
 
         # Create the payment address.
-        wallet.payment_address = self._call_cli('address', 'build', **{
+        wallet.payment_address = self.call_cli('address build', **{
             'payment-verification-key-file': verification_key_path,
             'stake-verification-key-file': stake_verification_key_path,
             'network': settings.NETWORK,
         })
 
         # Create the staking address.
-        wallet.stake_address = self._call_cli('stake-address', 'build', **{
+        wallet.stake_address = self.call_cli('stake-address build', **{
             'stake-verification-key-file': stake_verification_key_path,
             'network': settings.NETWORK,
         })
@@ -93,12 +120,14 @@ class Cardano:
         return wallet
 
     def address_info(self, address):
-        response = self._call_cli('address', 'info', address=address)
+        response = self.call_cli('address info', address=address)
         return json.loads(response)
 
+    def send_payment(self, from_address, to_address, amount):
+        return {}
 
     # --------------------------------------------------------------------------
-    def _call_cli(self, *args, **kwargs):
+    def call_cli(self, command, *args, **kwargs):
         """
         Invoke the cardano-cli command/subcommand specified by the given *args
         The **kwargs shall behave as options to the command.
@@ -107,11 +136,23 @@ class Cardano:
         :param kwargs: Arguments supplied to the
         :return:
         """
-        process_args = [settings.CLI_PATH] + list(args)
-        options = dict(kwargs)
+        process_args = [settings.CLI_PATH] + command.split()
 
+        for arg in args:
+            if isinstance(arg, str):
+                process_args.append(arg)
+            elif isinstance(arg, tuple) and len(arg) == 2:
+                process_args.append(f'--{arg[0]}')
+                process_args.append(arg[1])
+
+        options = dict(kwargs)
         network = options.get('network')
         if network:
+            if network == 'mainnet':
+                process_args.append('--mainnet')
+            elif network == 'testnet':
+                process_args.append('--testnet-magic')
+                process_args.append(settings.TESTNET_MAGIC)
             del options['network']
 
         for option_name, option_value in options.items():
@@ -121,11 +162,6 @@ class Cardano:
                     process_args.append(option_value)
                 else:
                     process_args += list(option_value)
-
-        if network == 'mainnet':
-            process_args.append('--mainnet')
-        elif network == 'testnet':
-            process_args += ['--testnet-magic', settings.TESTNET_MAGIC]
 
         try:
             completed_process = subprocess.run(

@@ -40,5 +40,21 @@ class DjangoCardanoTestCase(TestCase):
         except CardanoError as e:
             print(e)
 
+    def test_get_wallet_utxos(self):
+        utxos = self.cardano.query_utxos(self.wallet.payment_address)
+        for utxo in utxos:
+            self.assertIn('TxHash', utxo)
+            self.assertIn('TxIx', utxo)
+            self.assertIn('Amount', utxo)
+
+    def test_get_wallet_balance(self):
+        balance = self.cardano.query_balance(self.wallet.payment_address)
+        self.assertTrue(isinstance(balance, int))
+
     def test_send_payment(self):
-        print(self.wallet)
+        response = self.cardano.send_payment(
+            from_address=self.wallet.payment_address,
+            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            amount=1000000
+        )
+        print(response)

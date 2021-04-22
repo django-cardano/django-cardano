@@ -71,13 +71,6 @@ STATIC_URL = '/static/'
 # ------------------------------------------------------------------------------
 
 DJANGO_CARDANO = {
-    'NETWORK': 'testnet',
-    'CLI_PATH': '/Users/allan/.local/bin/cardano-cli',
-    'NODE_SOCKET_PATH': '/Users/allan/Library/Application Support/Daedalus Testnet/cardano-node.socket',
-    'INTERMEDIATE_FILE_PATH': Path(PROJECT_PATH) / 'intermediate'
-}
-
-DEFAULTS = {
     'CLI_PATH': '/path/to/cardano-cli',
     'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
     'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
