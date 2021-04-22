@@ -53,8 +53,8 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_payment(self):
         response = self.cardano.send_payment(
-            from_address=self.wallet.payment_address,
+            1000000,
+            from_wallet=self.wallet,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
-            amount=1000000
         )
         print(response)
