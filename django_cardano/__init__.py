@@ -102,8 +102,7 @@ class Cardano:
         return json.loads(response)
 
     def consolidate_tokens(self, wallet):
-        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
-        os.makedirs(tx_file_directory, 0o755)
+        tx_file_directory = self._create_tx_directory()
 
         protocol_parameters = self.refresh_protocol_parameters()
         min_utxo_value = protocol_parameters['minUTxOValue']
@@ -167,8 +166,7 @@ class Cardano:
 
     def send_lovelace(self, lovelace_requested, from_wallet, to_address):
         # Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
-        os.makedirs(tx_file_directory, 0o755)
+        tx_file_directory = self._create_tx_directory()
 
         from_address = from_wallet.payment_address
 
@@ -247,8 +245,7 @@ class Cardano:
         token_lovelace = min_utxo_value * 3
 
         # Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
-        os.makedirs(tx_file_directory, 0o755)
+        tx_file_directory = self._create_tx_directory()
 
         utxos = self.query_utxos(payment_address)
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
@@ -329,8 +326,7 @@ class Cardano:
         :return:
         """
         #  Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, 'token', str(utcnow().timestamp()))
-        os.makedirs(tx_file_directory, 0o755)
+        tx_file_directory = self._create_tx_directory()
 
         # ALWAYS work with a fresh set of protocol parameters.
         protocol_parameters = self.refresh_protocol_parameters()
@@ -548,3 +544,8 @@ class Cardano:
         raw_response = self.call_cli('transaction calculate-min-fee', **kwargs)
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
+
+    def _create_tx_directory(self) -> str:
+        path = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
+        os.makedirs(path, 0o755)
+        return path
