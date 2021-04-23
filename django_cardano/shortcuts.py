@@ -23,7 +23,7 @@ def filter_utxos(utxos, type) -> list:
     return filtered_utxos
 
 
-def sort_utxos(utxos, type, order='asc') -> list:
+def sort_utxos(utxos, type=settings.LOVELACE_UNIT, order='asc') -> list:
     if order == 'asc':
         return sorted(utxos, key=lambda v: v['Tokens'][type])
     else:

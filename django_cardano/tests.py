@@ -53,12 +53,19 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(tokens, dict))
 
     def test_send_lovelace(self):
-        response = self.cardano.send_lovelace(
+        self.cardano.send_lovelace(
             2000000,
             from_wallet=self.wallet,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
-        print(response)
+
+    def test_send_tokens(self):
+        self.cardano.send_tokens(
+            1,
+            '6b8d07d69639e9413dd637a1a815a7323c69c86abbafb66dbfdb1aa7',
+            from_wallet=self.wallet,
+            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+        )
 
     def test_consolidate_assets(self):
         self.cardano.consolidate_tokens(self.wallet)

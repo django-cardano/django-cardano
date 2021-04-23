@@ -108,6 +108,10 @@ class Cardano:
         protocol_parameters = self.refresh_protocol_parameters()
         min_utxo_value = protocol_parameters['minUTxOValue']
 
+        # HACK!! How do we compute the actual amount of lovelace that
+        # is required to be attached to a token??
+        token_lovelace = min_utxo_value * 2
+
         payment_address = wallet.payment_address
         all_tokens, utxos = self.query_balance(payment_address)
 
@@ -124,11 +128,8 @@ class Cardano:
 
         tx_out_list = []
         for asset_id, asset_count in all_tokens.items():
-            # HACK!! How do we compute the actual amount of lovelace that
-            # is required to be attached to this token??
-            lovelace_attached_to_token = min_utxo_value * 2
-            tx_out_list.append(('tx-out', f'{payment_address}+{lovelace_attached_to_token}+"{asset_count} {asset_id}"'))
-            remaining_lovelace -= lovelace_attached_to_token
+            tx_out_list.append(('tx-out', f'{payment_address}+{token_lovelace}+"{asset_count} {asset_id}"'))
+            remaining_lovelace -= token_lovelace
 
         # This output represents the remaining ADA.
         # It must be included in draft transaction in order to accurately compute the
@@ -164,8 +165,7 @@ class Cardano:
 
         self._submit_transaction(tx_args, tx_fee, tx_file_directory, wallet)
 
-
-    def send_lovelace(self, lovelace_to_send, from_wallet, to_address):
+    def send_lovelace(self, lovelace_requested, from_wallet, to_address):
         # Create a directory to hold intermediate files used to create the transaction
         tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
         os.makedirs(tx_file_directory, 0o755)
@@ -180,24 +180,24 @@ class Cardano:
         # 3.2. Get the transaction hash and index of the UTXO to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
         #
-        # In an effort to keep the wallet transactions tidy, the idea here is to
+        # In an effort to keep the wallet UTxOs tidy, the idea here is to
         # exhaust all of the smallest UTxOs before moving on to the bigger ones.
-        # Think of it like money: normally you'd reach for your change and small
-        # bills before breaking out the $50 or $100 bills, right??
+        # Think of it like money: normally you'd spend your change and small
+        # bills before breaking out the benjies.
         utxos = self.query_utxos(from_address)
-        utxos = filter_utxos(utxos, type=settings.LOVELACE_UNIT)
-        utxos = sort_utxos(utxos, type=settings.LOVELACE_UNIT)
+        sorted_lovelace_utxos = sort_utxos(
+            filter_utxos(utxos, type=settings.LOVELACE_UNIT),
+            type=settings.LOVELACE_UNIT,
+        )
 
-        amount_being_sent = 0
         tx_in_list = []
-        for utxo in utxos:
+        total_lovelace_being_sent = 0
+        for utxo in sorted_lovelace_utxos:
             tx_hash = utxo['TxHash']
             tx_index = utxo['TxIx']
-            tokens = utxo['Tokens']
             tx_in_list.append(('tx-in', f'{tx_hash}#{tx_index}'))
-            amount_being_sent += tokens[settings.LOVELACE_UNIT]
-
-            if amount_being_sent >= lovelace_to_send:
+            total_lovelace_being_sent += utxo['Tokens'][settings.LOVELACE_UNIT]
+            if total_lovelace_being_sent >= lovelace_requested:
                 break
 
         # 3.3. Draft the transaction:
@@ -208,14 +208,13 @@ class Cardano:
         #   - The funds being sent to the recipient
         #   - The "change" being returned to the sender
         tx_out_list = [
-            ('tx-out', f'{to_address}+{lovelace_to_send}'),
-            ('tx-out', f'{from_address}+{amount_being_sent}'),
+            ('tx-out', f'{to_address}+{lovelace_requested}'),
+            ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
         ]
 
         tx_args = tx_in_list + tx_out_list
         draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
         self.call_cli('transaction build-raw', *tx_args, **{
-            'invalid-hereafter': 0,
             'fee': 0,
             'out-file': draft_transaction_path
         })
@@ -226,15 +225,101 @@ class Cardano:
             'tx-body-file': draft_transaction_path,
             'protocol-params-file': self.protocol_parameters_path,
             'tx-in-count': len(tx_in_list),
-            'tx-out-count': 2,
+            'tx-out-count': len(tx_out_list),
             'witness-count': 1,
             'byron-witness-count': 0,
         })
 
         # 3.5. Calculate the change to send back to payment.addr and update that output respectively
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        lovelace_to_return = amount_being_sent - lovelace_to_send - tx_fee
+        lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
         tx_args[len(tx_args) - 1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
+
+        self._submit_transaction(tx_args, tx_fee, tx_file_directory, from_wallet)
+
+    def send_tokens(self, tokens_requested, token_id, from_wallet, to_address):
+        # ALWAYS work with a fresh set of protocol parameters.
+        protocol_parameters = self.refresh_protocol_parameters()
+
+        lovelace_unit = settings.LOVELACE_UNIT
+        min_utxo_value = protocol_parameters['minUTxOValue']
+        payment_address = from_wallet.payment_address
+        token_lovelace = min_utxo_value * 3
+
+        # Create a directory to hold intermediate files used to create the transaction
+        tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
+        os.makedirs(tx_file_directory, 0o755)
+
+        utxos = self.query_utxos(payment_address)
+        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
+        token_utxos = sort_utxos(filter_utxos(utxos, type=token_id), type=token_id)
+
+        if not lovelace_utxos:
+            # Let there be be at least one UTxO containing purely ADA.
+            # This will be used to pay for the transaction.
+            raise CardanoError('Insufficient ADA funds to complete transaction')
+
+        # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
+        # to pay for the transaction (including fees)
+        lovelace_utxo = lovelace_utxos[0]
+        total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
+        tx_in_list = [('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx']))]
+
+        # The set of transaction inputs shall be comprised of as many token UTxOs
+        # as are required to accommodate the tokens_requested
+        total_tokens_being_sent = 0
+        for utxo in token_utxos:
+            tx_hash = utxo['TxHash']
+            tx_index = utxo['TxIx']
+            tx_in_list.append(('tx-in', f'{tx_hash}#{tx_index}'))
+            total_tokens_being_sent += utxo['Tokens'][token_id]
+
+            # Accumulate the total amount of lovelace being sent
+            total_lovelace_being_sent += utxo['Tokens'][lovelace_unit]
+
+            if total_tokens_being_sent >= tokens_requested:
+                break
+
+        if total_tokens_being_sent < tokens_requested:
+            raise CardanoError(f'Insufficient tokens. Requested: {tokens_requested}, Available: {total_tokens_being_sent}')
+
+        lovelace_to_return = total_lovelace_being_sent
+
+        # Let the first transaction output represent the tokens being sent to the recipient
+        tx_out_list = [('tx-out', f'{to_address}+{token_lovelace}+"{tokens_requested} {token_id}"')]
+        lovelace_to_return -= token_lovelace
+
+        # If there are more tokens in this wallet than are being sent, return the rest to the sender
+        tokens_to_return = total_tokens_being_sent - tokens_requested
+        if tokens_to_return > 0:
+            tx_out_list.append(('tx-out', f'{payment_address}+{token_lovelace}+"{tokens_to_return} {token_id}"'))
+            lovelace_to_return -= token_lovelace
+
+        # The last output represents the lovelace being returned to the payment wallet
+        tx_out_list.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
+
+        tx_args = tx_in_list + tx_out_list
+        draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
+        self.call_cli('transaction build-raw', *tx_args, **{
+            'mary-era': None,
+            'fee': 0,
+            'out-file': draft_transaction_path
+        })
+
+        # 3.4. Calculate the fee
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+        tx_fee = self._calculate_min_fee(**{
+            'tx-body-file': draft_transaction_path,
+            'protocol-params-file': self.protocol_parameters_path,
+            'tx-in-count': len(tx_in_list),
+            'tx-out-count': len(tx_out_list),
+            'witness-count': 1,
+            'byron-witness-count': 0,
+        })
+
+        # 3.5. Calculate the change to send back to payment.addr and update that output respectively
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+        tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
         self._submit_transaction(tx_args, tx_fee, tx_file_directory, from_wallet)
 
@@ -433,6 +518,7 @@ class Cardano:
         invalid_hereafter = current_slot + settings.DEFAULT_TRANSACTION_TTL
 
         self.call_cli('transaction build-raw', *tx_args, **{
+            'mary-era': None,
             'invalid-hereafter': invalid_hereafter,
             'fee': tx_fee,
             'out-file': raw_transaction_file
