@@ -9,6 +9,7 @@ DEFAULTS = {
     'CLI_PATH': '/path/to/cardano-cli',
     'DEFAULT_TRANSACTION_TTL': 1000,
     'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
+    'LOVELACE_UNIT': 'lovelace',
     'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
     'NETWORK': 'mainnet',
     'TESTNET_MAGIC': '1097911063',

@@ -69,10 +69,10 @@ USE_TZ = True
 STATIC_URL = '/static/'
 
 # ------------------------------------------------------------------------------
-
 DJANGO_CARDANO = {
     'CLI_PATH': '/path/to/cardano-cli',
     'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
+    'LOVELACE_UNIT': 'lovelace',
     'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
     'NETWORK': 'testnet',
     'TESTNET_MAGIC': '1097911063',
