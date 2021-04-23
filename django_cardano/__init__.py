@@ -301,7 +301,6 @@ class Cardano:
         tx_args = tx_in_list + tx_out_list
         draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
         self.call_cli('transaction build-raw', *tx_args, **{
-            'mary-era': None,
             'fee': 0,
             'out-file': draft_transaction_path
         })
@@ -388,7 +387,6 @@ class Cardano:
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#build-the-raw-transaction
         draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
         self.call_cli('transaction build-raw', *tx_args, **{
-            'mary-era': None,
             'fee': 0,
             'mint': mint_argument,
             'out-file': draft_transaction_path,
@@ -495,7 +493,6 @@ class Cardano:
         invalid_hereafter = current_slot + settings.DEFAULT_TRANSACTION_TTL
 
         transaction_options = {
-            'mary-era': None,
             'invalid-hereafter': invalid_hereafter,
             'fee': tx_fee,
             'out-file': raw_transaction_file,
