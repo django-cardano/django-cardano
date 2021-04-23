@@ -4,13 +4,18 @@ import re
 import shutil
 import subprocess
 
+from collections import defaultdict
+
 from django_cardano.settings import django_cardano_settings as settings
-from django_cardano.shortcuts import utcnow
+from django_cardano.shortcuts import (
+    filter_utxos,
+    utcnow,
+)
 
 # Result of 'transaction calculate-min-fee' command is expected to be of the
 # exact form: '<int> Lovelace'
-MIN_FEE_RE = re.compile(r'(\d+) Lovelace')
-
+MIN_FEE_RE = re.compile(r'(\d+)\s+Lovelace')
+UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
 class CardanoError(RuntimeError):
     def __init__(self, reason=None, source_error=None):
@@ -27,7 +32,6 @@ class CardanoError(RuntimeError):
             self.reason = str(source_error.stderr)
         elif isinstance(source_error, FileNotFoundError):
             self.reason = str(source_error)
-
 
     def __str__(self) -> str:
         return self.reason
@@ -54,41 +58,43 @@ class Cardano:
         response = self.call_cli('query tip', network=settings.NETWORK)
         return json.loads(response)
 
-    def query_utxos(self, address, order=None) -> list:
+    def query_utxos(self, address) -> list:
         response = self.call_cli('query utxo', address=address, network=settings.NETWORK)
         lines = response.split('\n')
-        headers = lines[0].split()
 
-        utxos = []
+        utxos = {}
         for line in lines[2:]:
-            line_parts = line.split()
-            utxos.append({
-                headers[0]: line_parts[0],
-                headers[1]: line_parts[1],
-                headers[2]: int(line_parts[2]),
-                'Unit': line_parts[3]
-            })
+            match = UTXO_RE.match(line)
+            tx_hash = match[1]
+            utxo_info = {
+                'TxIx': match[2],
+                'Assets': defaultdict(int),
+            }
 
-        if order == 'asc':
-            utxos.sort(key=lambda k: k["Amount"])
-        elif order == 'desc':
-            utxos.sort(key=lambda k: k["Amount"], reverse=True)
+            assets = match[3].split('+')
+            for asset in assets:
+                asset_info = asset.split()
+                asset_count = int(asset_info[0])
+                asset_type = asset_info[1]
+                utxo_info['Assets'][asset_type] += asset_count
+
+            utxos[tx_hash] = utxo_info
 
         return utxos
 
-    def query_balance(self, address) -> int:
+    def query_lovelace_balance(self, address) -> int:
         utxos = self.query_utxos(address)
 
-        if len(utxos) == 0:
+        if not utxos:
             return 0
 
-        return self.calculate_balance(utxos)
+        return self.calculate_lovelace_balance(utxos)
 
     def address_info(self, address):
         response = self.call_cli('address info', address=address)
         return json.loads(response)
 
-    def send_payment(self, amount_to_send, from_wallet, to_address):
+    def send_lovelace(self, lovelace_to_send, from_wallet, to_address):
         # Create a directory to hold intermediate files used to create the transaction
         tx_file_directory = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
         os.makedirs(tx_file_directory, 0o755)
@@ -107,10 +113,12 @@ class Cardano:
         # exhaust all of the smallest UTxOs before moving on to the bigger ones.
         # Think of it like money: normally you'd reach for your change and small
         # bills before breaking out the $50 or $100 bills, right??
-        utxos = self.query_utxos(from_address, order='asc')
-        available_balance = self.calculate_balance(utxos)
-        if amount_to_send > available_balance:
-            error_message = f'Unable to transfer {amount_to_send} from {from_address} to {to_address}. Available funds: {available_balance}'
+        utxos = self.query_utxos(from_address)
+        lovelace_utxos = filter_utxos(utxos, type='lovelace')
+        available_balance = self.calculate_lovelace_balance(lovelace_utxos)
+
+        if lovelace_to_send > available_balance:
+            error_message = f'Unable to transfer {lovelace_to_send} from {from_address} to {to_address}. Available funds: {available_balance}'
             raise CardanoError(reason=error_message)
 
         amount_being_sent = 0
@@ -121,7 +129,7 @@ class Cardano:
             tx_in_list.append(('tx-in', f'{tx_hash}#{tx_index}'))
             amount_being_sent += utxo['Amount']
 
-            if amount_being_sent >= amount_to_send:
+            if amount_being_sent >= lovelace_to_send:
                 break
 
         # 3.3. Draft the transaction:
@@ -156,7 +164,7 @@ class Cardano:
 
         # 3.5. Calculate the change to send back to payment.addr
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        amount_to_return = amount_being_sent - amount_to_send - tx_fee
+        lovelace_to_return = amount_being_sent - lovelace_to_send - tx_fee
 
         # 3.6 Determine the TTL (time to Live) for the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#determine-the-ttl-time-to-live-for-the-transaction
@@ -167,8 +175,8 @@ class Cardano:
         # 3.7. Build the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#build-the-transaction
         actual_tx_args = tx_in_list + [
-            ('tx-out', f'{to_address}+{amount_to_send}'),
-            ('tx-out', f'{from_address}+{amount_to_return}'),
+            ('tx-out', f'{to_address}+{lovelace_to_send}'),
+            ('tx-out', f'{from_address}+{lovelace_to_return}'),
         ]
         raw_transaction_file = os.path.join(tx_file_directory, 'transaction.raw')
 
@@ -209,7 +217,7 @@ class Cardano:
         :return:
         """
         payment_address = payment_wallet.payment_address
-        utxos = self.query_utxos(address=payment_address, order='desc')
+        utxos = self.query_utxos(address=payment_address)
         if len(utxos) < 1:
             raise CardanoError(f'Address {payment_address} has no available funds')
         payment_utxo = utxos[0]
@@ -272,7 +280,7 @@ class Cardano:
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#build-the-transaction-again
         # Note that the transaction fee is deducted from the amount ADA being returned
         raw_transaction_path = os.path.join(tx_file_directory, 'transaction.raw')
-        amount_to_return = payment_utxo['Amount'] - tx_fee
+        amount_to_return = payment_utxo['Lovelace'] - tx_fee
         tx_out = f'{payment_address}+{amount_to_return}+{mint_argument}'
         self.call_cli('transaction build-raw', **{
             'mary-era': None,
@@ -385,15 +393,15 @@ class Cardano:
                 if completed_process.returncode == 0:
                     return completed_process.stdout.decode().strip()
                 else:
-                    stderr = completed_process.stderr.decode().strip()
-                    raise CardanoError(stderr=stderr)
+                    error_message = completed_process.stderr.decode().strip()
+                    raise CardanoError(error_message)
 
             except (FileNotFoundError, subprocess.CalledProcessError) as e:
                 raise CardanoError(source_error=e)
 
     @staticmethod
-    def calculate_balance(utxos):
-        return sum([int(utxo['Amount']) for utxo in utxos])
+    def calculate_lovelace_balance(utxos) -> int:
+        return sum([int(tx_info['Assets']['lovelace']) for _, tx_info in utxos.items()])
 
     def calculate_min_fee(self, **kwargs):
         kwargs['network'] = settings.NETWORK

@@ -5,7 +5,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 ENVIRONMENT = os.environ.get('DJANGO_ENV', 'production')
-PROJECT_PATH = Path(__file__).resolve().parent
+PROJECT_PATH = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = '2ox@%(q%va#li3__mv7-y^(+w_(_$-0cr^amsrj^n_43z*4t$t'
