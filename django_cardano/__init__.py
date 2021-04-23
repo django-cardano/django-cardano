@@ -417,15 +417,15 @@ class Cardano:
         The **kwargs behave as singular command arguments.
 
         :param command: command/subcommand to invoke
-        :param args: command/subcommand to invoke
-        :param kwargs: Arguments supplied to the
+        :param args:  Tuples containing optional argument name/value pairs
+        :param kwargs: Additional argument name/value pairs
         :return: The cardano-cli command output written to stdout
         """
         process_args = [settings.CLI_PATH] + command.split()
 
         for arg in args:
             if isinstance(arg, str):
-                process_args.append(arg)
+                process_args.append(f'--{arg}')
             elif isinstance(arg, tuple) and len(arg) == 2:
                 process_args.append(f'--{arg[0]}')
                 process_args.append(arg[1])
@@ -448,31 +448,39 @@ class Cardano:
                 else:
                     process_args.append(str(option_value))
 
-        shell = True if command == 'transaction build-raw' else False
-        if shell:
+        subprocess_args = {
+            'check': True,
+            'capture_output': True,
+            'env': {'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
+            'shell': True if command == 'transaction build-raw' else False
+        }
+
+        if subprocess_args['shell']:
+            # Note the above use of Shell=True iff the CLI command being
+            # invoked is "transaction build-raw".
+            #
+            # The reason for this is that  when performing a transaction
+            # that involved native tokens, the --tx-out argument(s) contain
+            # a space (ex: <addr>+<lovelace>+"<quantity> <asset_id>").
+            #
+            # For whatever reason, subprocess.run(...) does not permit the use
+            # of arguments containing spaces, thus the composed/executed command
+            # is not of the intended form and will consequently fail.
+            #
+            # Enabling shell mode allows the command to be invoked with spaces
+            # and quotation marks intact.
             try:
-                command = ' '.join(process_args)
-                completed_process = subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    env={'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
-                    shell=True
-                )
+                cmd = ' '.join(process_args)
+                completed_process = subprocess.run(cmd, **subprocess_args)
                 if completed_process.returncode == 0:
                     return True
                 else:
-                    raise CardanoError(f'Subprocess command failed: {command}')
+                    raise CardanoError(f'Subprocess command failed: {cmd}')
             except (FileNotFoundError, subprocess.CalledProcessError) as e:
                 raise CardanoError(source_error=e)
         else:
             try:
-                completed_process = subprocess.run(
-                    process_args,
-                    check=True,
-                    capture_output=True,
-                    env={'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
-                )
+                completed_process = subprocess.run(process_args, **subprocess_args)
                 if completed_process.returncode == 0:
                     return completed_process.stdout.decode().strip()
                 else:

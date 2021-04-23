@@ -74,6 +74,6 @@ DJANGO_CARDANO = {
     'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
     'LOVELACE_UNIT': 'lovelace',
     'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
-    'NETWORK': 'testnet',
+    'NETWORK': 'mainnet',
     'TESTNET_MAGIC': '1097911063',
 }
