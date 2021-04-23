@@ -13,9 +13,12 @@ from django_cardano.shortcuts import (
     utcnow,
 )
 
-# Result of 'transaction calculate-min-fee' command is expected to be of the
-# exact form: '<int> Lovelace'
+# Output of 'transaction calculate-min-fee' command is presumed
+# to be of the exact form: '<int> Lovelace'
 MIN_FEE_RE = re.compile(r'(\d+)\s+Lovelace')
+
+# Output of 'query utxo' command is presumed to yield an ASCII table
+# containing rows of the form: <TxHash>    <TxIx>      <Amount>
 UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
 
@@ -115,7 +118,6 @@ class Cardano:
             tx_hash = utxo['TxHash']
             tx_index = utxo['TxIx']
             tx_in_list.append(('tx-in', f'{tx_hash}#{tx_index}'))
-        tx_in_count = len(tx_in_list)
 
         remaining_lovelace = all_tokens[settings.LOVELACE_UNIT]
         del all_tokens[settings.LOVELACE_UNIT]
@@ -133,7 +135,6 @@ class Cardano:
         # minimum transaction fee. After the minimum fee has been calculated,
         # this output will be replaced by one that accounts for that fee.
         tx_out_list.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
-        tx_out_count = len(tx_out_list)
 
         # Create a draft transaction used to calculate the minimum transaction fee
         tx_args = tx_in_list + tx_out_list
@@ -147,8 +148,8 @@ class Cardano:
         tx_fee = self._calculate_min_fee(**{
             'tx-body-file': draft_transaction_path,
             'protocol-params-file': self.protocol_parameters_path,
-            'tx-in-count': tx_in_count,
-            'tx-out-count': tx_out_count,
+            'tx-in-count': len(tx_in_list),
+            'tx-out-count': len(tx_out_list),
             'witness-count': 1,
             'byron-witness-count': 0,
         })
@@ -162,7 +163,7 @@ class Cardano:
         tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
         self._submit_transaction(tx_args, tx_fee, tx_file_directory, wallet)
-        print('success!')
+
 
     def send_lovelace(self, lovelace_to_send, from_wallet, to_address):
         # Create a directory to hold intermediate files used to create the transaction
