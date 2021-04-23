@@ -53,7 +53,7 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_lovelace(self):
         self.cardano.send_lovelace(
-            2000000,
+            3000000,
             from_wallet=self.wallet,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
@@ -66,7 +66,7 @@ class DjangoCardanoTestCase(TestCase):
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 
-    def test_consolidate_assets(self):
+    def test_consolidate_tokens(self):
         self.cardano.consolidate_tokens(self.wallet)
 
     def test_mint_nft(self):
@@ -75,6 +75,5 @@ class DjangoCardanoTestCase(TestCase):
                 asset_name='MMTestToken',
                 payment_wallet=self.wallet
             )
-            print('woohoo!')
         except CardanoError as e:
             print(e.reason)
