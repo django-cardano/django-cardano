@@ -75,7 +75,4 @@ class DjangoCardanoTestCase(TestCase):
         self.wallet.consolidate_tokens()
 
     def test_mint_nft(self):
-        self.cardano.mint_nft(
-            'MMTestToken',
-            from_wallet=self.wallet
-        )
+        self.wallet.mint_nft('MMTestTokenTwo')

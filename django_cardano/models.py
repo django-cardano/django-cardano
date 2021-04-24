@@ -28,6 +28,7 @@ from django_cardano.settings import (
 )
 
 
+# ------------------------------------------------------------------------------
 class MintingPolicyManager(models.Manager):
     def create(self, **kwargs):
         policy = self.model(**kwargs)
@@ -35,23 +36,31 @@ class MintingPolicyManager(models.Manager):
         cardano_cli = CardanoCLI()
 
         intermediate_file_path = create_intermediate_directory('policy', str(policy.id))
-        os.makedirs(intermediate_file_path, 0o755)
+        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
 
         # 1. Create a minting policy
-        policy_signing_key_path = os.path.join(intermediate_file_path, 'policy.skey')
-        policy_verification_key_path = os.path.join(intermediate_file_path, 'policy.vkey')
-        policy_script_path = os.path.join(intermediate_file_path, 'policy.script')
+        policy_signing_key_path = os.path.join(intermediate_file_path, 'minting_policy.skey')
+        policy_verification_key_path = os.path.join(intermediate_file_path, 'minting_policy.vkey')
+        policy_script_path = os.path.join(intermediate_file_path, 'minting_policy.script')
         cardano_cli.run('address key-gen', **{
             'signing-key-file': policy_signing_key_path,
             'verification-key-file': policy_verification_key_path,
         })
+
+        # Attach the generated key files to the policy
+        # (Note: their stored values will be encrypted)
+        with open(policy_signing_key_path, 'r') as signing_key_file:
+            policy.signing_key = json.load(signing_key_file)
+        with open(policy_verification_key_path, 'r') as verification_key_file:
+            policy.verification_key = json.load(verification_key_file)
+
         policy_key_hash = cardano_cli.run('address key-hash', **{
             'payment-verification-key-file': policy_verification_key_path,
         })
-        policy_info = {'keyHash': policy_key_hash, 'type': 'sig'}
+        policy.script_data = {'keyHash': policy_key_hash, 'type': 'sig'}
 
         with open(policy_script_path, 'w') as policy_script_file:
-            json.dump(policy_info, policy_script_file)
+            json.dump(policy.script_data, policy_script_file)
         policy.policy_id = cardano_cli.run('transaction policyid', **{
             'script-file': policy_script_path
         })
@@ -67,15 +76,14 @@ class MintingPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     policy_id = models.CharField(max_length=64)
 
+    script_data = models.JSONField()
+    signing_key = encrypt(models.JSONField())
+    verification_key = encrypt(models.JSONField())
+
     objects = MintingPolicyManager()
 
     def __str__(self):
         return self.policy_id
-
-
-# ------------------------------------------------------------------------------
-class TransactionManager(models.Manager):
-    pass
 
 
 class TransactionTypes(models.IntegerChoices):
@@ -92,10 +100,11 @@ class Transaction(models.Model):
 
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
-    signed = models.JSONField(blank=True, null=True)
+    signed_tx_data = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     minting_policy = models.OneToOneField(MintingPolicy, blank=True, null=True, on_delete=models.PROTECT)
+
     wallet = models.ForeignKey('Wallet', on_delete=models.PROTECT)
 
     def __init__(self, *args, **kwargs):
@@ -133,11 +142,16 @@ class Transaction(models.Model):
     def signing_key_file_path(self):
         return os.path.join(self.intermediate_file_path, 'transaction.skey')
 
-    def generate_draft(self):
+    @property
+    def minting_policy_file_path(self):
+        return os.path.join(self.intermediate_file_path, 'mint_policy.script')
+
+    def generate_draft(self, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
         self.cli.run('transaction build-raw', *self.tx_args, **{
             'fee': 0,
-            'out-file': self.draft_tx_file_path
+            'out-file': self.draft_tx_file_path,
+            **tx_kwargs,
         })
 
     def calculate_min_fee(self):
@@ -150,7 +164,7 @@ class Transaction(models.Model):
             'tx-body-file': self.draft_tx_file_path,
             'tx-in-count': len(self.inputs),
             'tx-out-count': len(self.outputs),
-            'witness-count': 1,
+            'witness-count': 2 if self.minting_policy else 1,
             'byron-witness-count': 0,
             'protocol-params-file': self.cardano_utils.protocol_parameters_path,
             'network': cardano_settings.NETWORK,
@@ -158,7 +172,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, fee):
+    def submit(self, fee, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -168,6 +182,7 @@ class Transaction(models.Model):
         invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
         raw_tx_args = {
+            **tx_kwargs,
             'fee': fee,
             'invalid-hereafter': invalid_hereafter,
             'out-file': self.raw_tx_file_path,
@@ -188,16 +203,20 @@ class Transaction(models.Model):
             json.dump(self.wallet.payment_signing_key, signing_key_file)
         signing_args.append(('signing-key-file', self.signing_key_file_path))
 
-        # if 'mint' in tx_kwargs:
-        #     policy_signing_key_path = os.path.join(tx_file_directory, 'policy.skey')
-        #     signing_args.append(('signing-key-file', policy_signing_key_path))
-        #
-        #     policy_script_path = os.path.join(tx_file_directory, 'policy.script')
-        #     signing_kwargs['script-file'] = policy_script_path
+        if self.minting_policy:
+            policy_script_path = os.path.join(self.intermediate_file_path, 'policy.script')
+            with open(policy_script_path, 'w') as policy_script_file:
+                json.dump(self.minting_policy.script_data, policy_script_file)
+            signing_kwargs['script-file'] = policy_script_path
+
+            policy_signing_key_path = os.path.join(self.intermediate_file_path, 'policy.skey')
+            with open(policy_signing_key_path, 'w') as policy_signing_key_file:
+                json.dump(self.minting_policy.signing_key, policy_signing_key_file)
+            signing_args.append(('signing-key-file', policy_signing_key_path))
 
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
         with open(self.signed_tx_file_path, 'r') as signed_tx_file:
-            self.signed_tx = json.load(signed_tx_file)
+            self.signed_tx_data = json.load(signed_tx_file)
             self.save()
 
         # Submit the transaction
@@ -212,6 +231,7 @@ class Transaction(models.Model):
 
         # Clean up intermediate files
         shutil.rmtree(self.intermediate_file_path)
+
 
 # ------------------------------------------------------------------------------
 class WalletManager(models.Manager):
@@ -564,28 +584,67 @@ class Wallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-        # # Create a draft transaction used to calculate the minimum transaction fee
-        # draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
-        # self.cli.run('transaction build-raw', *tx_args, **{
-        #     'invalid-hereafter': 0,
-        #     'fee': 0,
-        #     'out-file': draft_transaction_path
-        # })
-        #
-        # tx_fee = self.calculate_min_fee(**{
-        #     'tx-body-file': draft_transaction_path,
-        #     'tx-in-count': len(tx_in_list),
-        #     'tx-out-count': len(tx_out_list),
-        #     'witness-count': 1,
-        #     'byron-witness-count': 0,
-        # })
-        #
-        # if remaining_lovelace - tx_fee < min_utxo_value:
-        #     # Now that the transaction fee has been calculated, ensure there is
-        #     # enough lovelace leftover to produce the output containing the remaining ADA
-        #     raise CardanoError('Insufficient lovelace available to perform consolidation.')
-        #
-        # # Update the "remainder" output with the balance minus for the transaction fee
-        # tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
-        #
-        # self._submit_transaction(tx_file_directory, wallet, *tx_args, fee=tx_fee)
+    def mint_nft(self, asset_name) -> None:
+        """
+        https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
+        :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
+        :param payment_wallet: Wallet with sufficient funds to mint the token
+        """
+        # ALWAYS work with a fresh set of protocol parameters.
+        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+
+        lovelace_unit = cardano_settings.LOVELACE_UNIT
+        min_utxo_value = protocol_parameters['minUTxOValue']
+        payment_address = self.payment_address
+        _, utxos = self.balance
+        # HACK!! How do we compute the actual amount of lovelace that
+        # is required to be attached to a token??
+        token_lovelace = min_utxo_value * 2
+
+        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
+        if not lovelace_utxos:
+            # Let there be be at least one UTxO containing purely ADA.
+            # This will be used to pay for the transaction.
+            raise CardanoError(f'Address {payment_address} has inadequate funds to complete transaction')
+
+        minting_policy = MintingPolicy.objects.create()
+
+        transaction = Transaction.objects.create(
+            minting_policy=minting_policy,
+            type=TransactionTypes.TOKEN_MINT,
+            wallet=self
+        )
+
+        # 2. Mint EXACTLY ONE token the new asset
+        mint_argument = f'"1 {minting_policy.policy_id}.{asset_name}"'
+
+        # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
+        # sufficient ADA to pay for the transaction (including fees)
+        lovelace_utxo = lovelace_utxos[0]
+        total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
+        lovelace_to_return = total_lovelace_being_sent - token_lovelace
+
+        transaction.outputs = [
+            ('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx'])),
+            ('tx-out', f'{payment_address}+{token_lovelace}+{mint_argument}'),
+            ('tx-out', f'{payment_address}+{lovelace_to_return}')
+        ]
+
+        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
+        transaction.save()
+
+        # Draft the transaction:
+        # Produce a draft transaction in order to determine the fees required to perform the actual transaction
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
+        transaction.generate_draft(mint=mint_argument)
+
+        # Calculate the fee
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+        tx_fee = transaction.calculate_min_fee()
+
+        # Calculate the change to return the payment address
+        # (minus transacction fee) and update that output respectively
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+        transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+
+        transaction.submit(fee=tx_fee, mint=mint_argument)
