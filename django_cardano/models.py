@@ -126,12 +126,8 @@ class Transaction(models.Model):
         return os.path.join(
             cardano_settings.INTERMEDIATE_FILE_PATH,
             'tx',
-            str(self.date_created.timestamp()),
+            str(self.id),
         )
-
-    @property
-    def tx_args(self):
-        return self.inputs + self.outputs
 
     @property
     def draft_tx_file_path(self):
@@ -152,6 +148,10 @@ class Transaction(models.Model):
     @property
     def minting_policy_file_path(self):
         return os.path.join(self.intermediate_file_path, 'mint_policy.script')
+
+    @property
+    def tx_args(self):
+        return self.inputs + self.outputs
 
     def generate_draft(self, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)

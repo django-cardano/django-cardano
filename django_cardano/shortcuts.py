@@ -33,9 +33,6 @@ def sort_utxos(utxos, type=settings.LOVELACE_UNIT, order='asc') -> list:
 
 
 def create_intermediate_directory(*subpath_components) -> str:
-    path_args = list(subpath_components)
-    path_args.append(str(utc_now().timestamp()))
-
-    path = os.path.join(settings.INTERMEDIATE_FILE_PATH, *path_args)
+    path = os.path.join(settings.INTERMEDIATE_FILE_PATH, *subpath_components)
     os.makedirs(path, 0o755)
     return path
