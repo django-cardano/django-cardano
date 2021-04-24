@@ -3,16 +3,16 @@ from pathlib import Path
 
 from django.test import TestCase
 
-from django_cardano import Cardano, CardanoError
-from django_cardano.models import Wallet
-
+from .exceptions import CardanoError
+from .models import Wallet
+from .util import CardanoUtils
 
 class DjangoCardanoTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
 
-        cls.cardano = Cardano()
+        cls.cardano = CardanoUtils()
 
         test_wallet_data_path = os.environ.get('TEST_WALLET_DATA_PATH')
         if test_wallet_data_path:
@@ -71,10 +71,12 @@ class DjangoCardanoTestCase(TestCase):
         self.cardano.consolidate_tokens(self.wallet)
 
     def test_mint_nft(self):
-        try:
-            self.cardano.mint_nft(
-                asset_name='MMTestToken',
-                payment_wallet=self.wallet
-            )
-        except CardanoError as e:
-            print(e.reason)
+        nft_metadata = {
+
+        }
+
+        self.cardano.mint_nft(
+            'MMTestToken',
+            nft_metadata,
+            from_wallet=self.wallet
+        )

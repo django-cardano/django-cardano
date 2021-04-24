@@ -6,7 +6,7 @@ import uuid
 from django.db import models
 from django_cryptography.fields import encrypt
 
-from django_cardano import Cardano
+from django_cardano.util import CardanoUtils
 from django_cardano.settings import django_cardano_settings
 
 
@@ -36,7 +36,7 @@ class WalletManager(models.Manager):
     def create(self, **kwargs):
         wallet = self.model(**kwargs)
 
-        cardano = Cardano()
+        cardano = CardanoUtils()
 
         intermediate_file_path = os.path.join(django_cardano_settings.INTERMEDIATE_FILE_PATH, 'wallet', str(wallet.id))
         os.makedirs(intermediate_file_path, 0o755)
