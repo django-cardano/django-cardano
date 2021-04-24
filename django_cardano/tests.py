@@ -32,7 +32,7 @@ class DjangoCardanoTestCase(TestCase):
         try:
             wallet = Wallet.objects.create(name='Test Wallet')
 
-            address_info = self.cardano.address_info(wallet.payment_address)
+            address_info = wallet.payment_address_info
             self.assertEqual(address_info['type'], 'payment')
             self.assertEqual(address_info['encoding'], 'bech32')
             self.assertEqual(address_info['era'], 'shelley')
@@ -40,21 +40,26 @@ class DjangoCardanoTestCase(TestCase):
         except CardanoError as e:
             print(e)
 
+    def test_get_wallet_info(self):
+        wallet_info = self.wallet.info
+        self.assertTrue(isinstance(wallet_info, dict))
+
     def test_get_utxos(self):
-        utxos = self.cardano.query_utxos(self.wallet.payment_address)
+        utxos = self.wallet.utxos
+        self.assertTrue(isinstance(utxos, list))
+
         for utxo in utxos:
             self.assertIn('TxHash', utxo)
             self.assertIn('TxIx', utxo)
             self.assertIn('Tokens', utxo)
 
     def test_get_wallet_balance(self):
-        address = self.wallet.payment_address
-        tokens, utxos = self.cardano.query_balance(address)
+        tokens, _ = self.wallet.balance
         self.assertTrue(isinstance(tokens, dict))
 
     def test_send_lovelace(self):
         self.cardano.send_lovelace(
-            1000000,
+            4000000,
             from_wallet=self.wallet,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )

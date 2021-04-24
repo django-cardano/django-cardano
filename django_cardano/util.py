@@ -1,27 +1,21 @@
 import json
 import os
-import re
 import shutil
-
-from collections import defaultdict
 
 from .settings import django_cardano_settings as settings
 from .shortcuts import (
+    create_intermediate_directory,
     filter_utxos,
     sort_utxos,
-    utcnow,
 )
 
-from .cli import CardanoCLI
+from .cli import (
+    CardanoCLI,
+    MIN_FEE_RE,
+    UTXO_RE,
+)
+
 from .exceptions import CardanoError
-
-# Output of 'transaction calculate-min-fee' command is presumed
-# to be of the exact form: '<int> Lovelace'
-MIN_FEE_RE = re.compile(r'(\d+)\s+Lovelace')
-
-# Output of 'query utxo' command is presumed to yield an ASCII table
-# containing rows of the form: <TxHash>    <TxIx>      <Amount>
-UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
 
 class CardanoUtils:
@@ -47,47 +41,8 @@ class CardanoUtils:
         response = self.cli.run('query tip', network=settings.NETWORK)
         return json.loads(response)
 
-    def query_utxos(self, address) -> list:
-        utxos = []
-
-        response = self.cli.run('query utxo', address=address, network=settings.NETWORK)
-
-        lines = response.split('\n')
-        for line in lines[2:]:
-            match = UTXO_RE.match(line)
-            utxo_info = {
-                'TxHash': match[1],
-                'TxIx': match[2],
-                'Tokens': {},
-            }
-
-            tokens = match[3].split('+')
-            for token in tokens:
-                token_info = token.split()
-                asset_count = int(token_info[0])
-                asset_type = token_info[1]
-                utxo_info['Tokens'][asset_type] = asset_count
-            utxos.append(utxo_info)
-
-        return utxos
-
-    def query_balance(self, address) -> tuple:
-        utxos = self.query_utxos(address)
-
-        all_tokens = defaultdict(int)
-        for utxo in utxos:
-            utxo_tokens = utxo['Tokens']
-            for token_id, token_count in utxo_tokens.items():
-                all_tokens[token_id] += token_count
-
-        return all_tokens, utxos
-
-    def address_info(self, address) -> dict:
-        response = self.cli.run('address info', address=address)
-        return json.loads(response)
-
     def consolidate_tokens(self, wallet) -> None:
-        tx_file_directory = self._create_tx_directory()
+        tx_file_directory = create_intermediate_directory('tx')
 
         protocol_parameters = self.refresh_protocol_parameters()
         min_utxo_value = protocol_parameters['minUTxOValue']
@@ -97,7 +52,7 @@ class CardanoUtils:
         token_lovelace = min_utxo_value * 2
 
         payment_address = wallet.payment_address
-        all_tokens, utxos = self.query_balance(payment_address)
+        all_tokens, utxos = wallet.balance
 
         # Traverse the set of utxos at the given wallet's payment address,
         # accumulating the total count of each type of token.
@@ -151,9 +106,10 @@ class CardanoUtils:
 
     def send_lovelace(self, lovelace_requested, from_wallet, to_address) -> None:
         # Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = self._create_tx_directory()
+        tx_file_directory = create_intermediate_directory('tx')
 
         from_address = from_wallet.payment_address
+        utxos = from_wallet.utxos
 
         # 3.1. Get protocol parameters
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-protocol-parameters
@@ -167,7 +123,6 @@ class CardanoUtils:
         # exhaust all of the smallest UTxOs before moving on to the bigger ones.
         # Think of it like money: normally you'd spend your change and small
         # bills before breaking out the benjies.
-        utxos = self.query_utxos(from_address)
         sorted_lovelace_utxos = sort_utxos(
             filter_utxos(utxos, type=settings.LOVELACE_UNIT),
             type=settings.LOVELACE_UNIT,
@@ -227,12 +182,12 @@ class CardanoUtils:
         lovelace_unit = settings.LOVELACE_UNIT
         min_utxo_value = protocol_parameters['minUTxOValue']
         payment_address = from_wallet.payment_address
-        token_lovelace = min_utxo_value * 3
+        token_lovelace = min_utxo_value * 2
 
         # Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = self._create_tx_directory()
+        tx_file_directory = create_intermediate_directory('tx')
 
-        utxos = self.query_utxos(payment_address)
+        utxos = from_wallet.utxos
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
         token_utxos = sort_utxos(filter_utxos(utxos, type=token_id), type=token_id)
 
@@ -311,7 +266,7 @@ class CardanoUtils:
         :param payment_wallet: Wallet with sufficient funds to mint the token
         """
         #  Create a directory to hold intermediate files used to create the transaction
-        tx_file_directory = self._create_tx_directory()
+        tx_file_directory = create_intermediate_directory('tx')
 
         # ALWAYS work with a fresh set of protocol parameters.
         protocol_parameters = self.refresh_protocol_parameters()
@@ -321,7 +276,7 @@ class CardanoUtils:
         payment_address = from_wallet.payment_address
         token_lovelace = min_utxo_value * 3
 
-        utxos = self.query_utxos(payment_address)
+        utxos = from_wallet.utxos
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
         if not lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
@@ -451,9 +406,3 @@ class CardanoUtils:
         raw_response = self.cli.run('transaction calculate-min-fee', **kwargs)
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
-
-    @staticmethod
-    def _create_tx_directory() -> str:
-        path = os.path.join(settings.INTERMEDIATE_FILE_PATH, str(utcnow().timestamp()))
-        os.makedirs(path, 0o755)
-        return path
