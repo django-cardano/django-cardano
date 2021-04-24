@@ -7,6 +7,7 @@ from .exceptions import CardanoError
 from .models import Wallet
 from .util import CardanoUtils
 
+
 class DjangoCardanoTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -58,17 +59,15 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(tokens, dict))
 
     def test_send_lovelace(self):
-        self.cardano.send_lovelace(
-            4000000,
-            from_wallet=self.wallet,
+        self.wallet.send_lovelace(
+            1000000,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 
     def test_send_tokens(self):
-        self.cardano.send_tokens(
+        self.wallet.send_tokens(
             1,
-            '6b8d07d69639e9413dd637a1a815a7323c69c86abbafb66dbfdb1aa7',
-            from_wallet=self.wallet,
+            '2c28ec325b9a244f3961856f0ef847466e1a0fab274f8e197faf6bcb.TestTokenTwo',
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 
