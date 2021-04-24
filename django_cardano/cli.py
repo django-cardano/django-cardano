@@ -53,8 +53,8 @@ class CardanoCLI:
         }
 
         if command == 'transaction build-raw':
-            # Iff the CLI command being nvoked is "transaction build-raw",
-            # invoke the stringified command in shell mode.
+            # Iff the CLI command being invoked is "transaction build-raw",
+            # issue the stringified command in shell mode.
             #
             # The reason for this is that  when performing a transaction
             # that involved native tokens, the --tx-out argument(s) contain
@@ -65,7 +65,7 @@ class CardanoCLI:
             # is not of the intended form and will consequently fail.
             #
             # Enabling shell mode allows the command to be invoked with spaces
-            # and quotation marks intact.
+            # and quotation characters intact.
             subprocess_args['shell'] = True
             process_args = ' '.join(process_args)
 

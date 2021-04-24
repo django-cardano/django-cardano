@@ -2,7 +2,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 
 from collections import defaultdict
 
@@ -49,16 +48,17 @@ class CardanoUtils:
         return json.loads(response)
 
     def query_utxos(self, address) -> list:
-        response = self.cli.run('query utxo', address=address, network=settings.NETWORK)
-        lines = response.split('\n')
-
         utxos = []
+
+        response = self.cli.run('query utxo', address=address, network=settings.NETWORK)
+
+        lines = response.split('\n')
         for line in lines[2:]:
             match = UTXO_RE.match(line)
             utxo_info = {
                 'TxHash': match[1],
                 'TxIx': match[2],
-                'Tokens': defaultdict(int),
+                'Tokens': {},
             }
 
             tokens = match[3].split('+')
@@ -66,7 +66,7 @@ class CardanoUtils:
                 token_info = token.split()
                 asset_count = int(token_info[0])
                 asset_type = token_info[1]
-                utxo_info['Tokens'][asset_type] += asset_count
+                utxo_info['Tokens'][asset_type] = asset_count
             utxos.append(utxo_info)
 
         return utxos
@@ -147,7 +147,7 @@ class CardanoUtils:
         # Update the "remainder" output with the balance minus for the transaction fee
         tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-        self._submit_transaction(tx_args, tx_fee, tx_file_directory, wallet)
+        self._submit_transaction(tx_file_directory, wallet, *tx_args, fee=tx_fee)
 
     def send_lovelace(self, lovelace_requested, from_wallet, to_address) -> None:
         # Create a directory to hold intermediate files used to create the transaction
@@ -218,7 +218,7 @@ class CardanoUtils:
         lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
         tx_args[len(tx_args) - 1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-        self._submit_transaction(tx_args, tx_fee, tx_file_directory, from_wallet)
+        self._submit_transaction(tx_file_directory, from_wallet, *tx_args, fee=tx_fee)
 
     def send_tokens(self, tokens_requested, token_id, from_wallet, to_address) -> None:
         # ALWAYS work with a fresh set of protocol parameters.
@@ -302,7 +302,7 @@ class CardanoUtils:
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        self._submit_transaction(tx_args, tx_fee, tx_file_directory, from_wallet)
+        self._submit_transaction(tx_file_directory, from_wallet, *tx_args, fee=tx_fee)
 
     def mint_nft(self, asset_name, metadata, from_wallet) -> None:
         """
@@ -345,11 +345,11 @@ class CardanoUtils:
         }
         with open(policy_script_path, 'w') as policy_script_file:
             json.dump(policy_info, policy_script_file)
-
-        # 2. Mint EXACTLY ONE token the new asset
         policy_id = self.cli.run('transaction policyid', **{
             'script-file': policy_script_path
         })
+
+        # 2. Mint EXACTLY ONE token the new asset
         mint_argument = f'"1 {policy_id}.{asset_name}"'
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
@@ -388,14 +388,15 @@ class CardanoUtils:
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        self._submit_transaction(tx_args, tx_fee, tx_file_directory, from_wallet, **{
+        self._submit_transaction(tx_file_directory, from_wallet, *tx_args, **{
+            'fee': tx_fee,
             'mint': mint_argument,
         })
 
     # --------------------------------------------------------------------------
-    # Protected methods
+    # Internal methods
     # --------------------------------------------------------------------------
-    def _submit_transaction(self, tx_args, tx_fee, tx_file_directory, wallet, **kwargs):
+    def _submit_transaction(self, tx_file_directory, wallet, *tx_args, **tx_kwargs):
         raw_transaction_file = os.path.join(tx_file_directory, 'transaction.raw')
 
         # Determine the TTL (time to Live) for the transaction
@@ -404,13 +405,11 @@ class CardanoUtils:
         current_slot = int(tip['slot'])
         invalid_hereafter = current_slot + settings.DEFAULT_TRANSACTION_TTL
 
-        transaction_options = {
+        tx_kwargs.update({
             'invalid-hereafter': invalid_hereafter,
-            'fee': tx_fee,
             'out-file': raw_transaction_file,
-            **kwargs,
-        }
-        self.cli.run('transaction build-raw', *tx_args, **transaction_options)
+        })
+        self.cli.run('transaction build-raw', *tx_args, **tx_kwargs)
 
         # Sign the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#sign-the-transaction
@@ -428,7 +427,7 @@ class CardanoUtils:
             json.dump(wallet.payment_signing_key, signing_key_file)
         signing_args.append(('signing-key-file', signing_key_file_path))
 
-        if 'mint' in kwargs:
+        if 'mint' in tx_kwargs:
             policy_signing_key_path = os.path.join(tx_file_directory, 'policy.skey')
             signing_args.append(('signing-key-file', policy_signing_key_path))
 
