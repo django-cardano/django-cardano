@@ -5,6 +5,7 @@ import uuid
 from collections import defaultdict
 
 from django.db import models
+from django.utils import timezone
 
 from django_cryptography.fields import encrypt
 
@@ -87,7 +88,10 @@ class TransactionTypes(models.IntegerChoices):
 class Transaction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     date_created = models.DateTimeField(auto_now_add=True, editable=False)
+    date_submitted = models.DateTimeField(blank=True, null=True)
 
+    inputs = models.JSONField(default=list)
+    outputs = models.JSONField(default=list)
     signed = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
@@ -99,8 +103,7 @@ class Transaction(models.Model):
 
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
-        self.inputs = []
-        self.outputs = []
+
 
     @property
     def intermediate_file_path(self):
@@ -203,6 +206,9 @@ class Transaction(models.Model):
             'tx-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
         })
+
+        self.date_submitted = timezone.now()
+        self.save()
 
         # Clean up intermediate files
         shutil.rmtree(self.intermediate_file_path)
@@ -368,9 +374,8 @@ class Wallet(models.Model):
             wallet=self
         )
 
-        # Get protocol parameters
+        # Get protocol parameters. ALWAYS work with a fresh set of protocol parameters.
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-protocol-parameters
-        # ALWAYS work with a fresh set of protocol parameters.
         self.cardano_utils.refresh_protocol_parameters()
 
         # Get the transaction hash and index of the UTXO to spend
@@ -401,6 +406,9 @@ class Wallet(models.Model):
             ('tx-out', f'{to_address}+{lovelace_requested}'),
             ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
         ]
+
+        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
+        transaction.save()
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -481,6 +489,9 @@ class Wallet(models.Model):
         # The last output represents the lovelace being returned to the payment wallet
         transaction.outputs.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
 
+        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
+        transaction.save()
+
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
@@ -497,15 +508,70 @@ class Wallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-        # tx_args = tx_in_list + tx_out_list
+    def consolidate_tokens(self) -> None:
+        # ALWAYS work with a fresh set of protocol parameters.
+        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+
+        lovelace_unit = cardano_settings.LOVELACE_UNIT
+        min_utxo_value = protocol_parameters['minUTxOValue']
+        payment_address = self.payment_address
+        all_tokens, utxos = self.balance
+
+        transaction = Transaction.objects.create(
+            type=TransactionTypes.TOKEN_CONSOLIDATION,
+            wallet=self
+        )
+
+        # Traverse the set of utxos at the given wallet's payment address,
+        # accumulating the total count of each type of token.
+        for utxo in utxos:
+            tx_hash = utxo['TxHash']
+            tx_index = utxo['TxIx']
+            transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
+
+        remaining_lovelace = all_tokens[lovelace_unit]
+        del all_tokens[lovelace_unit]
+
+        for asset_id, asset_count in all_tokens.items():
+            # HACK!! How do we compute the actual amount of lovelace that
+            # is required to be attached to a token??
+            token_lovelace = min_utxo_value * 2
+            transaction.outputs.append(('tx-out', f'{payment_address}+{token_lovelace}+"{asset_count} {asset_id}"'))
+            remaining_lovelace -= token_lovelace
+
+        # This output represents the remaining ADA.
+        # It must be included in draft transaction in order to accurately compute the
+        # minimum transaction fee. After the minimum fee has been calculated,
+        # this output will be replaced by one that accounts for that fee.
+        transaction.outputs.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
+
+        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
+        transaction.save()
+
+        # Draft the transaction:
+        # Produce a draft transaction in order to determine the fees required to perform the actual transaction
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
+        transaction.generate_draft()
+
+        # Calculate the fee
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+        tx_fee = transaction.calculate_min_fee()
+
+        # Calculate the change to return the payment address
+        # (minus transacction fee) and update that output respectively
+        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+        transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
+
+        transaction.submit(fee=tx_fee)
+
+        # # Create a draft transaction used to calculate the minimum transaction fee
         # draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
         # self.cli.run('transaction build-raw', *tx_args, **{
+        #     'invalid-hereafter': 0,
         #     'fee': 0,
         #     'out-file': draft_transaction_path
         # })
         #
-        # # 3.4. Calculate the fee
-        # # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         # tx_fee = self.calculate_min_fee(**{
         #     'tx-body-file': draft_transaction_path,
         #     'tx-in-count': len(tx_in_list),
@@ -514,8 +580,12 @@ class Wallet(models.Model):
         #     'byron-witness-count': 0,
         # })
         #
-        # # 3.5. Calculate the change to send back to payment.addr and update that output respectively
-        # # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        # tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+        # if remaining_lovelace - tx_fee < min_utxo_value:
+        #     # Now that the transaction fee has been calculated, ensure there is
+        #     # enough lovelace leftover to produce the output containing the remaining ADA
+        #     raise CardanoError('Insufficient lovelace available to perform consolidation.')
         #
-        # self._submit_transaction(tx_file_directory, from_wallet, *tx_args, fee=tx_fee)
+        # # Update the "remainder" output with the balance minus for the transaction fee
+        # tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
+        #
+        # self._submit_transaction(tx_file_directory, wallet, *tx_args, fee=tx_fee)

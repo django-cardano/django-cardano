@@ -12,7 +12,6 @@ from .shortcuts import (
 from .cli import (
     CardanoCLI,
     MIN_FEE_RE,
-    UTXO_RE,
 )
 
 from .exceptions import CardanoError
@@ -41,70 +40,8 @@ class CardanoUtils:
         response = self.cli.run('query tip', network=settings.NETWORK)
         return json.loads(response)
 
-    def consolidate_tokens(self, wallet) -> None:
-        tx_file_directory = create_intermediate_directory('tx')
 
-        protocol_parameters = self.refresh_protocol_parameters()
-        min_utxo_value = protocol_parameters['minUTxOValue']
-
-        # HACK!! How do we compute the actual amount of lovelace that
-        # is required to be attached to a token??
-        token_lovelace = min_utxo_value * 2
-
-        payment_address = wallet.payment_address
-        all_tokens, utxos = wallet.balance
-
-        # Traverse the set of utxos at the given wallet's payment address,
-        # accumulating the total count of each type of token.
-        tx_in_list = []
-        for utxo in utxos:
-            tx_hash = utxo['TxHash']
-            tx_index = utxo['TxIx']
-            tx_in_list.append(('tx-in', f'{tx_hash}#{tx_index}'))
-
-        remaining_lovelace = all_tokens[settings.LOVELACE_UNIT]
-        del all_tokens[settings.LOVELACE_UNIT]
-
-        tx_out_list = []
-        for asset_id, asset_count in all_tokens.items():
-            tx_out_list.append(('tx-out', f'{payment_address}+{token_lovelace}+"{asset_count} {asset_id}"'))
-            remaining_lovelace -= token_lovelace
-
-        # This output represents the remaining ADA.
-        # It must be included in draft transaction in order to accurately compute the
-        # minimum transaction fee. After the minimum fee has been calculated,
-        # this output will be replaced by one that accounts for that fee.
-        tx_out_list.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
-
-        # Create a draft transaction used to calculate the minimum transaction fee
-        tx_args = tx_in_list + tx_out_list
-        draft_transaction_path = os.path.join(tx_file_directory, 'transaction.draft')
-        self.cli.run('transaction build-raw', *tx_args, **{
-            'invalid-hereafter': 0,
-            'fee': 0,
-            'out-file': draft_transaction_path
-        })
-
-        tx_fee = self.calculate_min_fee(**{
-            'tx-body-file': draft_transaction_path,
-            'tx-in-count': len(tx_in_list),
-            'tx-out-count': len(tx_out_list),
-            'witness-count': 1,
-            'byron-witness-count': 0,
-        })
-
-        if remaining_lovelace - tx_fee < min_utxo_value:
-            # Now that the transaction fee has been calculated, ensure there is
-            # enough lovelace leftover to produce the output containing the remaining ADA
-            raise CardanoError('Insufficient lovelace available to perform consolidation.')
-
-        # Update the "remainder" output with the balance minus for the transaction fee
-        tx_args[len(tx_args) - 1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
-
-        self._submit_transaction(tx_file_directory, wallet, *tx_args, fee=tx_fee)
-
-
-    def mint_nft(self, asset_name, metadata, from_wallet) -> None:
+    def mint_nft(self, asset_name, from_wallet) -> None:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
