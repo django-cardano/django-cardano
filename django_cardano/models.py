@@ -6,7 +6,7 @@ import uuid
 from django.db import models
 from django_cryptography.fields import encrypt
 
-from django_cardano.util import CardanoUtils
+from django_cardano.cli import CardanoCLI
 from django_cardano.settings import django_cardano_settings
 
 
@@ -36,7 +36,7 @@ class WalletManager(models.Manager):
     def create(self, **kwargs):
         wallet = self.model(**kwargs)
 
-        cardano = CardanoUtils()
+        cardano_cli = CardanoCLI()
 
         intermediate_file_path = os.path.join(django_cardano_settings.INTERMEDIATE_FILE_PATH, 'wallet', str(wallet.id))
         os.makedirs(intermediate_file_path, 0o755)
@@ -45,7 +45,7 @@ class WalletManager(models.Manager):
         signing_key_path = os.path.join(intermediate_file_path, 'signing.key')
         verification_key_path = os.path.join(intermediate_file_path, 'verification.key')
 
-        cardano.call_cli('address key-gen', **{
+        cardano_cli.run('address key-gen', **{
             'signing-key-file': signing_key_path,
             'verification-key-file': verification_key_path,
         })
@@ -54,20 +54,20 @@ class WalletManager(models.Manager):
         stake_signing_key_path = os.path.join(intermediate_file_path, 'stake_signing.key')
         stake_verification_key_path = os.path.join(intermediate_file_path, 'stake_verification.key')
 
-        cardano.call_cli('stake-address key-gen', **{
+        cardano_cli.run('stake-address key-gen', **{
             'signing-key-file': stake_signing_key_path,
             'verification-key-file': stake_verification_key_path,
         })
 
         # Create the payment address.
-        wallet.payment_address = cardano.call_cli('address build', **{
+        wallet.payment_address = cardano_cli.run('address build', **{
             'payment-verification-key-file': verification_key_path,
             'stake-verification-key-file': stake_verification_key_path,
             'network': django_cardano_settings.NETWORK,
         })
 
         # Create the staking address.
-        wallet.stake_address = cardano.call_cli('stake-address build', **{
+        wallet.stake_address = cardano_cli.run('stake-address build', **{
             'stake-verification-key-file': stake_verification_key_path,
             'network': django_cardano_settings.NETWORK,
         })
