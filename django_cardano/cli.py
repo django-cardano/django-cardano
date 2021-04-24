@@ -1,8 +1,17 @@
+import re
 import subprocess
 
 from django_cardano.settings import django_cardano_settings as settings
 
 from .exceptions import CardanoError
+
+# Output of 'transaction calculate-min-fee' command is presumed
+# to be of the exact form: '<int> Lovelace'
+MIN_FEE_RE = re.compile(r'(\d+)\s+Lovelace')
+
+# Output of 'query utxo' command is presumed to yield an ASCII table
+# containing rows of the form: <TxHash>    <TxIx>      <Amount>
+UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
 
 class CardanoCLI:
@@ -49,7 +58,6 @@ class CardanoCLI:
             'check': True,
             'capture_output': True,
             'env': {'CARDANO_NODE_SOCKET_PATH': settings.NODE_SOCKET_PATH},
-            'shell': True if command == 'transaction build-raw' else False
         }
 
         if command == 'transaction build-raw':
