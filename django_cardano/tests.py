@@ -76,6 +76,6 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_mint_nft(self):
         self.wallet.mint_nft(
-            'MMTestTokenFour',
+            'MMTestToken',
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )

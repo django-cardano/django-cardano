@@ -613,7 +613,9 @@ class Wallet(models.Model):
             wallet=self
         )
 
-        # Mint ONE and only ONE token...Ever.
+        # By specifying a quantity of one (1) we express our intent
+        # to mint ONE AND ONLY ONE of this token...Ever.
+        # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
         mint_argument = f'"1 {minting_policy.policy_id}.{asset_name}"'
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
