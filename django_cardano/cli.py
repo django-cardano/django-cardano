@@ -7,7 +7,7 @@ from .exceptions import CardanoError
 
 class CardanoCLI:
     @staticmethod
-    def run(command, *args, **kwargs):
+    def run(command, *args, **kwargs) -> str:
         """
         Invoke the specified cardano-cli command/subcommand
         The *args serve as a series of (arg_name, arg_value) tuples
@@ -52,9 +52,9 @@ class CardanoCLI:
             'shell': True if command == 'transaction build-raw' else False
         }
 
-        if subprocess_args['shell']:
-            # Note the above use of Shell=True iff the CLI command being
-            # invoked is "transaction build-raw".
+        if command == 'transaction build-raw':
+            # Iff the CLI command being nvoked is "transaction build-raw",
+            # invoke the stringified command in shell mode.
             #
             # The reason for this is that  when performing a transaction
             # that involved native tokens, the --tx-out argument(s) contain
@@ -66,23 +66,15 @@ class CardanoCLI:
             #
             # Enabling shell mode allows the command to be invoked with spaces
             # and quotation marks intact.
-            try:
-                cmd = ' '.join(process_args)
-                completed_process = subprocess.run(cmd, **subprocess_args)
-                if completed_process.returncode == 0:
-                    return True
-                else:
-                    raise CardanoError(f'Subprocess command failed: {cmd}')
-            except (FileNotFoundError, subprocess.CalledProcessError) as e:
-                raise CardanoError(source_error=e)
-        else:
-            try:
-                completed_process = subprocess.run(process_args, **subprocess_args)
-                if completed_process.returncode == 0:
-                    return completed_process.stdout.decode().strip()
-                else:
-                    error_message = completed_process.stderr.decode().strip()
-                    raise CardanoError(error_message)
+            subprocess_args['shell'] = True
+            process_args = ' '.join(process_args)
 
-            except (FileNotFoundError, subprocess.CalledProcessError) as e:
-                raise CardanoError(source_error=e)
+        try:
+            completed_process = subprocess.run(process_args, **subprocess_args)
+            if completed_process.returncode == 0:
+                return completed_process.stdout.decode().strip()
+            else:
+                error_message = completed_process.stderr.decode().strip()
+                raise CardanoError(error_message)
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            raise CardanoError(source_error=e)
