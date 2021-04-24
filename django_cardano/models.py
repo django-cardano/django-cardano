@@ -38,7 +38,7 @@ class MintingPolicyManager(models.Manager):
         intermediate_file_path = create_intermediate_directory('policy', str(policy.id))
         os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
 
-        # 1. Create a minting policy
+        # 1. Create signing/verification keys for the minting policy
         policy_signing_key_path = os.path.join(intermediate_file_path, 'minting_policy.skey')
         policy_verification_key_path = os.path.join(intermediate_file_path, 'minting_policy.vkey')
         policy_script_path = os.path.join(intermediate_file_path, 'minting_policy.script')
@@ -47,8 +47,8 @@ class MintingPolicyManager(models.Manager):
             'verification-key-file': policy_verification_key_path,
         })
 
-        # Attach the generated key files to the policy
-        # (Note: their stored values will be encrypted)
+        # 2. Attach the generated key files to the Policy record
+        # (Note: stored values will be encrypted)
         with open(policy_signing_key_path, 'r') as signing_key_file:
             policy.signing_key = json.load(signing_key_file)
         with open(policy_verification_key_path, 'r') as verification_key_file:
@@ -57,7 +57,13 @@ class MintingPolicyManager(models.Manager):
         policy_key_hash = cardano_cli.run('address key-hash', **{
             'payment-verification-key-file': policy_verification_key_path,
         })
-        policy.script_data = {'keyHash': policy_key_hash, 'type': 'sig'}
+
+        # 3. Construct the policy script and write it to a temporary
+        # file to be used in generating the policy ID
+        policy.script_data = {
+            'keyHash': policy_key_hash,
+            'type': 'sig'
+        }
 
         with open(policy_script_path, 'w') as policy_script_file:
             json.dump(policy.script_data, policy_script_file)
@@ -67,6 +73,7 @@ class MintingPolicyManager(models.Manager):
 
         policy.save(force_insert=True, using=self.db)
 
+        # 4. Discard all intermediate files used in the creation of the policy
         shutil.rmtree(intermediate_file_path)
 
         return policy
@@ -517,7 +524,7 @@ class Wallet(models.Model):
         tx_fee = transaction.calculate_min_fee()
 
         # Calculate the change to return the payment address
-        # (minus transacction fee) and update that output respectively
+        # (minus transaction fee) and update that output respectively
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
@@ -578,7 +585,7 @@ class Wallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def mint_nft(self, asset_name) -> None:
+    def mint_nft(self, asset_name, to_address) -> None:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -617,7 +624,7 @@ class Wallet(models.Model):
 
         transaction.outputs = [
             ('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx'])),
-            ('tx-out', f'{payment_address}+{accompanying_lovelace}+{mint_argument}'),
+            ('tx-out', f'{to_address}+{accompanying_lovelace}+{mint_argument}'),
             ('tx-out', f'{payment_address}+{lovelace_to_return}')
         ]
 
