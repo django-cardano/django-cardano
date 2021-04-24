@@ -394,10 +394,6 @@ class Wallet(models.Model):
             wallet=self
         )
 
-        # Get protocol parameters. ALWAYS work with a fresh set of protocol parameters.
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-protocol-parameters
-        self.cardano_utils.refresh_protocol_parameters()
-
         # Get the transaction hash and index of the UTXO to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
         #
@@ -448,13 +444,12 @@ class Wallet(models.Model):
         transaction.submit(fee=tx_fee)
 
     def send_tokens(self, token_quantity, token_id, to_address) -> None:
-        # ALWAYS work with a fresh set of protocol parameters.
-        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+        # HACK!! The amount of ADA accompanying a token needs to be computed
+        # with respect to that token's properties
+        accompanying_lovelace = 2000000
 
         lovelace_unit = cardano_settings.LOVELACE_UNIT
-        min_utxo_value = protocol_parameters['minUTxOValue']
         payment_address = self.payment_address
-        token_lovelace = min_utxo_value * 2
 
         utxos = self.utxos
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
@@ -497,14 +492,14 @@ class Wallet(models.Model):
         lovelace_to_return = total_lovelace_being_sent
 
         # Let the first transaction output represent the tokens being sent to the recipient
-        transaction.outputs = [('tx-out', f'{to_address}+{token_lovelace}+"{token_quantity} {token_id}"')]
-        lovelace_to_return -= token_lovelace
+        transaction.outputs = [('tx-out', f'{to_address}+{accompanying_lovelace}+"{token_quantity} {token_id}"')]
+        lovelace_to_return -= accompanying_lovelace
 
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
         tokens_to_return = total_tokens_being_sent - token_quantity
         if tokens_to_return > 0:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_lovelace}+"{tokens_to_return} {token_id}"'))
-            lovelace_to_return -= token_lovelace
+            transaction.outputs.append(('tx-out', f'{payment_address}+{accompanying_lovelace}+"{tokens_to_return} {token_id}"'))
+            lovelace_to_return -= accompanying_lovelace
 
         # The last output represents the lovelace being returned to the payment wallet
         transaction.outputs.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
@@ -529,11 +524,11 @@ class Wallet(models.Model):
         transaction.submit(fee=tx_fee)
 
     def consolidate_tokens(self) -> None:
-        # ALWAYS work with a fresh set of protocol parameters.
-        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+        # HACK!! The amount of ADA accompanying a token needs to be computed
+        # with respect to that token's properties
+        accompanying_lovelace = 2000000
 
         lovelace_unit = cardano_settings.LOVELACE_UNIT
-        min_utxo_value = protocol_parameters['minUTxOValue']
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
@@ -555,9 +550,8 @@ class Wallet(models.Model):
         for asset_id, asset_count in all_tokens.items():
             # HACK!! How do we compute the actual amount of lovelace that
             # is required to be attached to a token??
-            token_lovelace = min_utxo_value * 2
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_lovelace}+"{asset_count} {asset_id}"'))
-            remaining_lovelace -= token_lovelace
+            transaction.outputs.append(('tx-out', f'{payment_address}+{accompanying_lovelace}+"{asset_count} {asset_id}"'))
+            remaining_lovelace -= accompanying_lovelace
 
         # This output represents the remaining ADA.
         # It must be included in draft transaction in order to accurately compute the
@@ -590,16 +584,13 @@ class Wallet(models.Model):
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
         :param payment_wallet: Wallet with sufficient funds to mint the token
         """
-        # ALWAYS work with a fresh set of protocol parameters.
-        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+        # HACK!! The amount of ADA accompanying a token needs to be computed
+        # with respect to that token's properties
+        accompanying_lovelace = 2000000
 
         lovelace_unit = cardano_settings.LOVELACE_UNIT
-        min_utxo_value = protocol_parameters['minUTxOValue']
         payment_address = self.payment_address
         _, utxos = self.balance
-        # HACK!! How do we compute the actual amount of lovelace that
-        # is required to be attached to a token??
-        token_lovelace = min_utxo_value * 2
 
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
         if not lovelace_utxos:
@@ -615,18 +606,18 @@ class Wallet(models.Model):
             wallet=self
         )
 
-        # 2. Mint EXACTLY ONE token the new asset
+        # Mint ONE and only ONE token...Ever.
         mint_argument = f'"1 {minting_policy.policy_id}.{asset_name}"'
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
         # sufficient ADA to pay for the transaction (including fees)
         lovelace_utxo = lovelace_utxos[0]
         total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
-        lovelace_to_return = total_lovelace_being_sent - token_lovelace
+        lovelace_to_return = total_lovelace_being_sent - accompanying_lovelace
 
         transaction.outputs = [
             ('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx'])),
-            ('tx-out', f'{payment_address}+{token_lovelace}+{mint_argument}'),
+            ('tx-out', f'{payment_address}+{accompanying_lovelace}+{mint_argument}'),
             ('tx-out', f'{payment_address}+{lovelace_to_return}')
         ]
 

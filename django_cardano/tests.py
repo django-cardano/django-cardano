@@ -67,7 +67,7 @@ class DjangoCardanoTestCase(TestCase):
     def test_send_tokens(self):
         self.wallet.send_tokens(
             1,
-            '2c28ec325b9a244f3961856f0ef847466e1a0fab274f8e197faf6bcb.TestTokenTwo',
+            'd491fdc194c0d988459ce05a65c8a52259433e84d7162765570aa581.MMTestTokenTwo',
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 
@@ -75,4 +75,4 @@ class DjangoCardanoTestCase(TestCase):
         self.wallet.consolidate_tokens()
 
     def test_mint_nft(self):
-        self.wallet.mint_nft('MMTestTokenTwo')
+        self.wallet.mint_nft('MMTestTokenThree')
