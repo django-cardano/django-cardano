@@ -1,11 +1,6 @@
 import os
-from datetime import datetime, timezone
 
 from django_cardano.settings import django_cardano_settings as settings
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def filter_utxos(utxos, type) -> list:
