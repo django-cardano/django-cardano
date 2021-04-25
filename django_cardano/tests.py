@@ -1,4 +1,5 @@
 import os
+import uuid
 from pathlib import Path
 
 from django.test import TestCase
@@ -75,7 +76,14 @@ class DjangoCardanoTestCase(TestCase):
         self.wallet.consolidate_tokens()
 
     def test_mint_nft(self):
+        metadata = {
+            'name': 'MintMachine Test NFT',
+            'description': 'An image that _should_ exist in perpetuity',
+            'image': 'https://i.imgur.com/6zJM4Eh.png',
+            'ticker': 'MINTMACHINE'
+        }
         self.wallet.mint_nft(
-            'MMTestToken',
+            str(uuid.uuid4()),
+            metadata,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )

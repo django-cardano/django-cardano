@@ -1,6 +1,9 @@
 import os
+import re
 
 from django_cardano.settings import django_cardano_settings as settings
+
+ALPHANUMERIC_RE = re.compile(r'[^a-zA-Z0-9]')
 
 
 def filter_utxos(utxos, type) -> list:
@@ -31,3 +34,17 @@ def create_intermediate_directory(*subpath_components) -> str:
     path = os.path.join(settings.INTERMEDIATE_FILE_PATH, *subpath_components)
     os.makedirs(path, 0o755)
     return path
+
+
+def clean_token_asset_name(asset_name: str) -> str:
+    """
+    :param asset_name: The asset_name segment of a Cardano native token
+
+    Cardano native assets are identified by the concatenation of
+    their policy ID and an optional name:
+    <asset_id> = <policy_id>.<asset_name>
+
+    The asset name is restricted to alphanumeric characters, so
+    use this shortcut to exclude invalid characters.
+    """
+    return ALPHANUMERIC_RE.sub('', asset_name)

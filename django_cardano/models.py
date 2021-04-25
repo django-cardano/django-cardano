@@ -18,6 +18,7 @@ from .exceptions import CardanoError
 from .util import CardanoUtils
 
 from .shortcuts import (
+    clean_token_asset_name,
     create_intermediate_directory,
     filter_utxos,
     sort_utxos,
@@ -107,6 +108,7 @@ class Transaction(models.Model):
 
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
+    metadata = models.JSONField(blank=True, null=True)
     signed_tx_data = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
@@ -130,6 +132,10 @@ class Transaction(models.Model):
         )
 
     @property
+    def metadata_file_path(self):
+        return os.path.join(self.intermediate_file_path, 'metadata.json')
+
+    @property
     def draft_tx_file_path(self):
         return os.path.join(self.intermediate_file_path, 'transaction.draft')
 
@@ -146,20 +152,27 @@ class Transaction(models.Model):
         return os.path.join(self.intermediate_file_path, 'transaction.skey')
 
     @property
-    def minting_policy_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'mint_policy.script')
-
-    @property
     def tx_args(self):
         return self.inputs + self.outputs
 
-    def generate_draft(self, **tx_kwargs):
+    def generate_draft(self, **kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
-        self.cli.run('transaction build-raw', *self.tx_args, **{
+
+        cmd_kwargs = {
+            **kwargs,
             'fee': 0,
             'out-file': self.draft_tx_file_path,
-            **tx_kwargs,
-        })
+        }
+        if 'metadata' in cmd_kwargs:
+            with open(self.metadata_file_path, 'w') as metadata_file:
+                json.dump(cmd_kwargs['metadata'], metadata_file)
+            cmd_kwargs.update({
+                'json-metadata-no-schema': None,
+                'metadata-json-file': self.metadata_file_path,
+            })
+            del cmd_kwargs['metadata']
+
+        self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
     def calculate_min_fee(self):
         if not os.path.exists(self.draft_tx_file_path):
@@ -188,14 +201,20 @@ class Transaction(models.Model):
         current_slot = int(tip['slot'])
         invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
-        raw_tx_args = {
+        cmd_kwargs = {
             **tx_kwargs,
             'fee': fee,
             'invalid-hereafter': invalid_hereafter,
             'out-file': self.raw_tx_file_path,
         }
+        if 'metadata' in cmd_kwargs:
+            cmd_kwargs.update({
+                'json-metadata-no-schema': None,
+                'metadata-json-file': self.metadata_file_path,
+            })
+            del cmd_kwargs['metadata']
 
-        self.cli.run('transaction build-raw', *self.tx_args, **raw_tx_args)
+        self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
         # Sign the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#sign-the-transaction
@@ -585,7 +604,7 @@ class Wallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def mint_nft(self, asset_name, to_address) -> None:
+    def mint_nft(self, asset_name, metadata, to_address) -> None:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -607,16 +626,27 @@ class Wallet(models.Model):
 
         minting_policy = MintingPolicy.objects.create()
 
-        transaction = Transaction.objects.create(
-            minting_policy=minting_policy,
-            type=TransactionTypes.TOKEN_MINT,
-            wallet=self
-        )
-
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
-        mint_argument = f'"1 {minting_policy.policy_id}.{asset_name}"'
+        cleaned_asset_name = clean_token_asset_name(asset_name)
+        mint_argument = f'"1 {minting_policy.policy_id}.{cleaned_asset_name}"'
+
+        # Structure the token metadata according to the proposed "721" standard
+        # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
+        tx_metadata = {
+            "721": {
+                minting_policy.policy_id: {
+                    cleaned_asset_name: metadata
+                }
+            }
+        }
+        transaction = Transaction.objects.create(
+            minting_policy=minting_policy,
+            type=TransactionTypes.TOKEN_MINT,
+            wallet=self,
+            metadata=tx_metadata
+        )
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
         # sufficient ADA to pay for the transaction (including fees)
@@ -636,7 +666,11 @@ class Wallet(models.Model):
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
-        transaction.generate_draft(mint=mint_argument)
+
+        transaction.generate_draft(
+            mint=mint_argument,
+            metadata=transaction.metadata
+        )
 
         # Calculate the fee
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
@@ -647,4 +681,8 @@ class Wallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        transaction.submit(fee=tx_fee, mint=mint_argument)
+        transaction.submit(
+            fee=tx_fee,
+            mint=mint_argument,
+            metadata=transaction.metadata
+        )
