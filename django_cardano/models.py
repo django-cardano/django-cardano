@@ -604,7 +604,7 @@ class Wallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def mint_nft(self, asset_name, metadata, to_address) -> None:
+    def mint_nft(self, policy, asset_name, metadata, to_address) -> None:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -624,25 +624,23 @@ class Wallet(models.Model):
             # This will be used to pay for the transaction.
             raise CardanoError(f'Address {payment_address} has inadequate funds to complete transaction')
 
-        minting_policy = MintingPolicy.objects.create()
-
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
         cleaned_asset_name = clean_token_asset_name(asset_name)
-        mint_argument = f'"1 {minting_policy.policy_id}.{cleaned_asset_name}"'
+        mint_argument = f'"1 {policy.policy_id}.{cleaned_asset_name}"'
 
         # Structure the token metadata according to the proposed "721" standard
         # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
         tx_metadata = {
             "721": {
-                minting_policy.policy_id: {
+                policy.policy_id: {
                     cleaned_asset_name: metadata
                 }
             }
         }
         transaction = Transaction.objects.create(
-            minting_policy=minting_policy,
+            minting_policy=policy,
             type=TransactionTypes.TOKEN_MINT,
             wallet=self,
             metadata=tx_metadata
