@@ -5,8 +5,10 @@ from pathlib import Path
 from django.test import TestCase
 
 from .exceptions import CardanoError
-from .models import MintingPolicy, Wallet
+from .models import MintingPolicy, get_wallet_model
 from .util import CardanoUtils
+
+Wallet = get_wallet_model()
 
 
 class DjangoCardanoTestCase(TestCase):
