@@ -77,3 +77,4 @@ DJANGO_CARDANO = {
     'NETWORK': 'mainnet',
     'TESTNET_MAGIC': '1097911063',
 }
+DJANGO_CARDANO_WALLET_MODEL = 'django_cardano.Wallet'

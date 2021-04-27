@@ -6,6 +6,9 @@ from collections import defaultdict
 
 from django.db import models
 from django.utils import timezone
+from django.apps import apps as django_apps
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from django_cryptography.fields import encrypt
 
@@ -114,8 +117,6 @@ class Transaction(models.Model):
 
     minting_policy = models.OneToOneField(MintingPolicy, blank=True, null=True, on_delete=models.PROTECT)
 
-    wallet = models.ForeignKey('Wallet', on_delete=models.PROTECT)
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -192,7 +193,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, fee, **tx_kwargs):
+    def submit(self, wallet, fee, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -226,7 +227,7 @@ class Transaction(models.Model):
         }
 
         with open(self.signing_key_file_path, 'w') as signing_key_file:
-            json.dump(self.wallet.payment_signing_key, signing_key_file)
+            json.dump(wallet.payment_signing_key, signing_key_file)
         signing_args.append(('signing-key-file', self.signing_key_file_path))
 
         if self.minting_policy:
@@ -261,6 +262,8 @@ class Transaction(models.Model):
 
 # ------------------------------------------------------------------------------
 class WalletManager(models.Manager):
+    use_in_migrations = True
+
     def create_from_path(self, path):
         wallet = self.model()
 
@@ -289,7 +292,7 @@ class WalletManager(models.Manager):
         cardano_cli = CardanoCLI()
 
         intermediate_file_path = create_intermediate_directory('wallet', str(wallet.id))
-        os.makedirs(intermediate_file_path, 0o755)
+        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
 
         # Generate the payment signing & verification keys
         signing_key_path = os.path.join(intermediate_file_path, 'signing.key')
@@ -310,14 +313,14 @@ class WalletManager(models.Manager):
         })
 
         # Create the payment address.
-        wallet.payment_address = self.cli.run('address build', **{
+        wallet.payment_address = cardano_cli.run('address build', **{
             'payment-verification-key-file': verification_key_path,
             'stake-verification-key-file': stake_verification_key_path,
             'network': cardano_settings.NETWORK,
         })
 
         # Create the staking address.
-        wallet.stake_address = self.cli.run('stake-address build', **{
+        wallet.stake_address = cardano_cli.run('stake-address build', **{
             'stake-verification-key-file': stake_verification_key_path,
             'network': cardano_settings.NETWORK,
         })
@@ -341,7 +344,7 @@ class WalletManager(models.Manager):
         return wallet
 
 
-class Wallet(models.Model):
+class AbstractWallet(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     name = models.CharField(max_length=30)
@@ -355,6 +358,9 @@ class Wallet(models.Model):
     stake_verification_key = encrypt(models.JSONField())
 
     objects = WalletManager()
+
+    class Meta:
+        abstract = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -467,7 +473,7 @@ class Wallet(models.Model):
         lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
         transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-        transaction.submit(fee=tx_fee)
+        transaction.submit(wallet=self, fee=tx_fee)
 
     def send_tokens(self, token_quantity, token_id, to_address) -> None:
         # HACK!! The amount of ADA accompanying a token needs to be computed
@@ -547,7 +553,7 @@ class Wallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        transaction.submit(fee=tx_fee)
+        transaction.submit(wallet=self, fee=tx_fee)
 
     def consolidate_tokens(self) -> None:
         # HACK!! The amount of ADA accompanying a token needs to be computed
@@ -602,7 +608,7 @@ class Wallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-        transaction.submit(fee=tx_fee)
+        transaction.submit(wallet=self, fee=tx_fee)
 
     def mint_nft(self, policy, asset_name, metadata, to_address) -> None:
         """
@@ -682,5 +688,26 @@ class Wallet(models.Model):
         transaction.submit(
             fee=tx_fee,
             mint=mint_argument,
-            metadata=transaction.metadata
+            metadata=transaction.metadata,
+            wallet=self,
         )
+
+
+class Wallet(AbstractWallet):
+    class Meta(AbstractWallet.Meta):
+        swappable = 'DJANGO_CARDANO_WALLET_MODEL'
+
+
+def get_wallet_model():
+    """
+    Return the Wallet model that is active in this project.
+    """
+    try:
+        return django_apps.get_model(settings.DJANGO_CARDANO_WALLET_MODEL, require_ready=True)
+    except ValueError:
+        raise ImproperlyConfigured("DJANGO_CARDANO_WALLET_MODEL must be of the form 'app_label.model_name'")
+    except LookupError:
+        raise ImproperlyConfigured(
+            "DJANGO_CARDANO_WALLET_MODEL refers to model '%s' that has not been installed" % settings.DJANGO_CARDANO_WALLET_MODEL
+        )
+
