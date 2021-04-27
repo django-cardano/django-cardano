@@ -422,8 +422,7 @@ class AbstractWallet(models.Model):
         utxos = self.utxos
 
         transaction = Transaction.objects.create(
-            type=TransactionTypes.LOVELACE_PAYMENT,
-            wallet=self
+            type=TransactionTypes.LOVELACE_PAYMENT
         )
 
         # Get the transaction hash and index of the UTXO to spend
@@ -493,8 +492,7 @@ class AbstractWallet(models.Model):
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
         transaction = Transaction.objects.create(
-            type=TransactionTypes.TOKEN_PAYMENT,
-            wallet=self
+            type=TransactionTypes.TOKEN_PAYMENT
         )
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
@@ -565,8 +563,7 @@ class AbstractWallet(models.Model):
         all_tokens, utxos = self.balance
 
         transaction = Transaction.objects.create(
-            type=TransactionTypes.TOKEN_CONSOLIDATION,
-            wallet=self
+            type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
         # Traverse the set of utxos at the given wallet's payment address,
@@ -648,7 +645,6 @@ class AbstractWallet(models.Model):
         transaction = Transaction.objects.create(
             minting_policy=policy,
             type=TransactionTypes.TOKEN_MINT,
-            wallet=self,
             metadata=tx_metadata
         )
 
