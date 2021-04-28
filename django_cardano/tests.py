@@ -45,7 +45,7 @@ class DjangoCardanoTestCase(TestCase):
             print(e)
 
     def test_get_wallet_info(self):
-        wallet_info = self.wallet.info
+        wallet_info = self.wallet.payment_address_info
         self.assertTrue(isinstance(wallet_info, dict))
 
     def test_get_utxos(self):
