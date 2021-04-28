@@ -7,6 +7,7 @@ USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
     'CLI_PATH': '/path/to/cardano-cli',
+    'DEFAULT_DUST': 2000000,
     'DEFAULT_TRANSACTION_TTL': 1000,
     'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
     'LOVELACE_UNIT': 'lovelace',
