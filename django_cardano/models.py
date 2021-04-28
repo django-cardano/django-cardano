@@ -194,7 +194,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, wallet, fee, **tx_kwargs):
+    def submit(self, fee, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -226,6 +226,9 @@ class Transaction(models.Model):
             'out-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
         }
+
+        WalletClass = get_wallet_model()
+        wallet = WalletClass.objects.get(payment_address=self.payment_address)
 
         foo = json.loads(wallet.payment_signing_key)        
         with open(self.signing_key_file_path, 'w') as signing_key_file:
@@ -475,7 +478,7 @@ class AbstractWallet(models.Model):
         lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
         transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-        transaction.submit(wallet=self, fee=tx_fee)
+        transaction.submit(fee=tx_fee)
 
     def send_tokens(self, token_quantity, asset_id, to_address) -> None:
         # HACK!! The amount of ADA accompanying a token needs to be computed
@@ -555,7 +558,7 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        transaction.submit(wallet=self, fee=tx_fee)
+        transaction.submit(fee=tx_fee)
 
     def consolidate_tokens(self) -> None:
         # HACK!! The amount of ADA accompanying a token needs to be computed
@@ -610,7 +613,7 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
         transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-        transaction.submit(wallet=self, fee=tx_fee)
+        transaction.submit(fee=tx_fee)
 
     def mint_nft(self, policy, asset_name, metadata, to_address) -> None:
         """
@@ -691,7 +694,6 @@ class AbstractWallet(models.Model):
             fee=tx_fee,
             mint=mint_argument,
             metadata=transaction.metadata,
-            wallet=self,
         )
 
 
