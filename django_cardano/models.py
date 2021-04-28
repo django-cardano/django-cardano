@@ -108,6 +108,7 @@ class Transaction(models.Model):
     date_created = models.DateTimeField(auto_now_add=True, editable=False)
     date_submitted = models.DateTimeField(blank=True, null=True)
 
+    payment_address = models.CharField(max_length=128)
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
@@ -115,6 +116,7 @@ class Transaction(models.Model):
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     minting_policy = models.OneToOneField(MintingPolicy, blank=True, null=True, on_delete=models.PROTECT)
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -225,8 +227,9 @@ class Transaction(models.Model):
             'network': cardano_settings.NETWORK
         }
 
+        foo = json.loads(wallet.payment_signing_key)        
         with open(self.signing_key_file_path, 'w') as signing_key_file:
-            json.dump(wallet.payment_signing_key, signing_key_file)
+            json.dump(foo, signing_key_file)
         signing_args.append(('signing-key-file', self.signing_key_file_path))
 
         if self.minting_policy:
@@ -421,6 +424,7 @@ class AbstractWallet(models.Model):
         utxos = self.utxos
 
         transaction = Transaction.objects.create(
+            payment_address=from_address,
             type=TransactionTypes.LOVELACE_PAYMENT
         )
 
@@ -491,6 +495,7 @@ class AbstractWallet(models.Model):
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
         transaction = Transaction.objects.create(
+            payment_address=from_address,
             type=TransactionTypes.TOKEN_PAYMENT
         )
 
@@ -562,6 +567,7 @@ class AbstractWallet(models.Model):
         all_tokens, utxos = self.balance
 
         transaction = Transaction.objects.create(
+            payment_address=from_address,
             type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
@@ -617,14 +623,14 @@ class AbstractWallet(models.Model):
         token_dust = cardano_settings.DEFAULT_DUST
 
         lovelace_unit = cardano_settings.LOVELACE_UNIT
-        payment_address = self.payment_address
+        from_address = self.payment_address
         _, utxos = self.balance
 
         lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
         if not lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
             # This will be used to pay for the transaction.
-            raise CardanoError(f'Address {payment_address} has inadequate funds to complete transaction')
+            raise CardanoError(f'Address {from_address} has inadequate funds to complete transaction')
 
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
@@ -642,6 +648,7 @@ class AbstractWallet(models.Model):
             }
         }
         transaction = Transaction.objects.create(
+            payment_address=from_address,
             minting_policy=policy,
             type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata
@@ -656,7 +663,7 @@ class AbstractWallet(models.Model):
         transaction.outputs = [
             ('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx'])),
             ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
-            ('tx-out', f'{payment_address}+{lovelace_to_return}')
+            ('tx-out', f'{from_address}+{lovelace_to_return}')
         ]
 
         # CHECKPOINT: persist the transaction once its inputs and outputs have been established
@@ -678,7 +685,7 @@ class AbstractWallet(models.Model):
         # Calculate the change to return the payment address
         # (minus transacction fee) and update that output respectively
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+        transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return - tx_fee}')
 
         transaction.submit(
             fee=tx_fee,
