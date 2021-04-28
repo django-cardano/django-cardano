@@ -426,22 +426,19 @@ class AbstractWallet(models.Model):
         from_address = self.payment_address
         utxos = self.utxos
 
+        # The protocol's declared txFeeFixed will give us a fair estimate
+        # of how much the fee for this transaction will be.
+        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+        estimated_tx_fee = protocol_parameters.get('txFeeFixed')
+
         transaction = Transaction.objects.create(
             payment_address=from_address,
             type=TransactionTypes.LOVELACE_PAYMENT
         )
 
-        # Get the transaction hash and index of the UTXO to spend
+        # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
-        #
-        # In an effort to keep the wallet UTxOs tidy, the idea here is to
-        # exhaust all of the smallest UTxOs before moving on to the bigger ones.
-        # Think of it like money: normally you'd spend your change and small
-        # bills before breaking out the benjies.
-        sorted_lovelace_utxos = sort_utxos(
-            filter_utxos(utxos, type=lovelace_unit),
-            type=lovelace_unit,
-        )
+        sorted_lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
 
         total_lovelace_being_sent = 0
         for utxo in sorted_lovelace_utxos:
@@ -449,7 +446,10 @@ class AbstractWallet(models.Model):
             tx_index = utxo['TxIx']
             transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
             total_lovelace_being_sent += utxo['Tokens'][lovelace_unit]
-            if total_lovelace_being_sent >= lovelace_requested:
+
+            # Validate whether the included UTxOs are sufficient to cover
+            # the lovelace being transferred, including the estimated tx_fee.
+            if total_lovelace_being_sent >= lovelace_requested + estimated_tx_fee:
                 break
 
         # There will ALWAYS be exactly two output transactions:
@@ -481,15 +481,11 @@ class AbstractWallet(models.Model):
         transaction.submit(fee=tx_fee)
 
     def send_tokens(self, token_quantity, asset_id, to_address) -> None:
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.DEFAULT_DUST
-
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
         utxos = self.utxos
-        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
+        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
         token_utxos = sort_utxos(filter_utxos(utxos, type=asset_id), type=asset_id)
 
         if not lovelace_utxos:
@@ -528,6 +524,10 @@ class AbstractWallet(models.Model):
 
         lovelace_to_return = total_lovelace_being_sent
 
+        # HACK!! The amount of ADA accompanying a token needs to be computed
+        # with respect to that token's properties
+        token_dust = cardano_settings.DEFAULT_DUST       
+
         # Let the first transaction output represent the tokens being sent to the recipient
         transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{token_quantity} {token_id}"')]
         lovelace_to_return -= token_dust
@@ -560,17 +560,13 @@ class AbstractWallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def consolidate_tokens(self) -> None:
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.DEFAULT_DUST
-
+    def consolidate_utxos(self) -> None:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
         transaction = Transaction.objects.create(
-            payment_address=from_address,
+            payment_address=payment_address,
             type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
@@ -585,8 +581,9 @@ class AbstractWallet(models.Model):
         del all_tokens[lovelace_unit]
 
         for asset_id, asset_count in all_tokens.items():
-            # HACK!! How do we compute the actual amount of lovelace that
-            # is required to be attached to a token??
+            # HACK!! The amount of ADA accompanying a token needs to be computed
+            # with respect to that token's properties
+            token_dust = cardano_settings.DEFAULT_DUST           
             transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
             remaining_lovelace -= token_dust
 
@@ -621,15 +618,11 @@ class AbstractWallet(models.Model):
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
         :param payment_wallet: Wallet with sufficient funds to mint the token
         """
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.DEFAULT_DUST
-
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
         _, utxos = self.balance
 
-        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit), order='desc')
+        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
         if not lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
             # This will be used to pay for the transaction.
@@ -660,6 +653,11 @@ class AbstractWallet(models.Model):
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
         # sufficient ADA to pay for the transaction (including fees)
         lovelace_utxo = lovelace_utxos[0]
+        
+        # HACK!! The amount of ADA accompanying a token needs to be computed
+        # with respect to that token's properties
+        token_dust = cardano_settings.DEFAULT_DUST
+        
         total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
 

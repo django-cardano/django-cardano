@@ -64,7 +64,7 @@ class DjangoCardanoTestCase(TestCase):
     def test_send_lovelace(self):
         self.wallet.send_lovelace(
             1000000,
-            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            to_address='addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7',
         )
 
     def test_send_tokens(self):
@@ -74,8 +74,8 @@ class DjangoCardanoTestCase(TestCase):
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 
-    def test_consolidate_tokens(self):
-        self.wallet.consolidate_tokens()
+    def test_consolidate_utxos(self):
+        self.wallet.consolidate_utxos()
 
     def test_mint_nft(self):
         minting_policy = MintingPolicy.objects.create()
