@@ -421,7 +421,7 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, lovelace_requested, to_address) -> Transaction:
+    def send_lovelace(self, lovelace_requested, to_address, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
 
@@ -470,20 +470,21 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        # Calculate the change to return the payment address
-        # (minus transacction fee) and update that output respectively
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
-        transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
+        if not dry_run:
+            # Calculate the change to return the payment address
+            # (minus transacction fee) and update that output respectively
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+            lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
+            transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-        transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee)
 
-        # Let successful transactions be persisted to the database
-        transaction.save()
+            # Let successful transactions be persisted to the database
+            transaction.save()
 
-        return transaction
+        return transaction, tx_fee
 
-    def send_tokens(self, token_quantity, asset_id, to_address) -> Transaction:
+    def send_tokens(self, token_quantity, asset_id, to_address, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
@@ -553,19 +554,20 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        # Calculate the change to return the payment address
-        # (minus transaction fee) and update that output respectively
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+        if not dry_run:
+            # Calculate the change to return the payment address
+            # (minus transaction fee) and update that output respectively
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-        transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee)
 
-        # Let successful transactions be persisted to the database
-        transaction.save()
+            # Let successful transactions be persisted to the database
+            transaction.save()
 
-        return transaction
+        return transaction, tx_fee
 
-    def consolidate_utxos(self) -> Transaction:
+    def consolidate_utxos(self, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
@@ -607,23 +609,26 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        # Calculate the change to return the payment address
-        # (minus transacction fee) and update that output respectively
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
+        if not dry_run:
+            # Calculate the change to return the payment address
+            # (minus transacction fee) and update that output respectively
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-        transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee)
 
-        # Let successful transactions be persisted to the database
-        transaction.save()
+            # Let successful transactions be persisted to the database
+            transaction.save()
 
-        return transaction
+        return transaction, tx_fee
 
-    def mint_nft(self, policy, asset_name, metadata, to_address) -> Transaction:
+    def mint_nft(self, policy, asset_name, metadata, to_address, dry_run=False) -> (Transaction, int):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
-        :param payment_wallet: Wallet with sufficient funds to mint the token
+        :param metadata: Wallet with sufficient funds to mint the token
+        :param to_address: Address to send minted token to
+        :param dry_run: If enabled, return the transaction draft
         """
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
@@ -660,17 +665,17 @@ class AbstractWallet(models.Model):
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
         # sufficient ADA to pay for the transaction (including fees)
-        lovelace_utxo = lovelace_utxos[0]
+        payment_utxo = lovelace_utxos[0]
         
         # HACK!! The amount of ADA accompanying a token needs to be computed
         # with respect to that token's properties
         token_dust = cardano_settings.DEFAULT_DUST
         
-        total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
+        total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
 
         transaction.outputs = [
-            ('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx'])),
+            ('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx'])),
             ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
             ('tx-out', f'{from_address}+{lovelace_to_return}')
         ]
@@ -688,21 +693,22 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        # Calculate the change to return the payment address
-        # (minus transacction fee) and update that output respectively
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-        transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return - tx_fee}')
+        if not dry_run:
+            # Calculate the change to return the payment address
+            # (minus transacction fee) and update that output respectively
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+            transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return - tx_fee}')
 
-        transaction.submit(
-            fee=tx_fee,
-            mint=mint_argument,
-            metadata=transaction.metadata,
-        )
+            transaction.submit(
+                fee=tx_fee,
+                mint=mint_argument,
+                metadata=transaction.metadata,
+            )
 
-        # Let successful transactions be persisted to the database
-        transaction.save()
+            # Let successful transactions be persisted to the database
+            transaction.save()
 
-        return transaction
+        return transaction, tx_fee
 
 
 class Wallet(AbstractWallet):

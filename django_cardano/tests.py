@@ -5,7 +5,11 @@ from pathlib import Path
 from django.test import TestCase
 
 from .exceptions import CardanoError
-from .models import MintingPolicy, get_wallet_model
+from .models import (
+    get_wallet_model,
+    MintingPolicy,
+    Transaction,
+)
 from .util import CardanoUtils
 
 Wallet = get_wallet_model()
@@ -62,10 +66,25 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(tokens, dict))
 
     def test_send_lovelace(self):
-        self.wallet.send_lovelace(
-            1000000,
+        lovelace_requested = 1000000
+        draft_transaction, tx_fee = self.wallet.send_lovelace(
+            lovelace_requested,
+            to_address='addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7',
+            dry_run=True
+        )
+        self.assertTrue(isinstance(draft_transaction, Transaction))
+        self.assertTrue(isinstance(tx_fee, int))
+        self.assertTrue(draft_transaction._state.adding)
+
+        transaction, tx_fee = self.wallet.send_lovelace(
+            lovelace_requested,
             to_address='addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7',
         )
+        self.assertTrue(isinstance(draft_transaction, Transaction))
+        self.assertTrue(isinstance(tx_fee, int))
+        self.assertFalse(transaction._state.adding)
+
+
 
     def test_send_tokens(self):
         self.wallet.send_tokens(
