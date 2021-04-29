@@ -79,3 +79,4 @@ DJANGO_CARDANO = {
     'TESTNET_MAGIC': '1097911063',
 }
 DJANGO_CARDANO_WALLET_MODEL = 'django_cardano.Wallet'
+DJANGO_CARDANO_MINTING_POLICY_MODEL = 'django_cardano.MintingPolicy'

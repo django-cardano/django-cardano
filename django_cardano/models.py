@@ -82,7 +82,7 @@ class MintingPolicyManager(models.Manager):
         return policy
 
 
-class MintingPolicy(models.Model):
+class AbstractMintingPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     policy_id = models.CharField(max_length=64)
 
@@ -91,6 +91,9 @@ class MintingPolicy(models.Model):
     verification_key = encrypt(models.JSONField())
 
     objects = MintingPolicyManager()
+
+    class Meta:
+        abstract = True
 
     def __str__(self):
         return self.policy_id
@@ -115,14 +118,12 @@ class Transaction(models.Model):
     signed_tx_data = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
-    minting_policy = models.OneToOneField(MintingPolicy, blank=True, null=True, on_delete=models.PROTECT)
-
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
+        self.minting_policy = None
 
 
     @property
@@ -209,12 +210,19 @@ class Transaction(models.Model):
             'invalid-hereafter': invalid_hereafter,
             'out-file': self.raw_tx_file_path,
         }
+
+        minting_policy = None
+        if 'minting_policy' in cmd_kwargs:
+            minting_policy = cmd_kwargs['minting_policy']
+            del cmd_kwargs['minting_policy']
+
         if 'metadata' in cmd_kwargs:
             cmd_kwargs.update({
                 'json-metadata-no-schema': None,
                 'metadata-json-file': self.metadata_file_path,
             })
             del cmd_kwargs['metadata']
+
 
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -235,15 +243,15 @@ class Transaction(models.Model):
             json.dump(payment_signing_key, signing_key_file)
         signing_args.append(('signing-key-file', self.signing_key_file_path))
 
-        if self.minting_policy:
+        if minting_policy:
             policy_script_path = os.path.join(self.intermediate_file_path, 'policy.script')
             with open(policy_script_path, 'w') as policy_script_file:
-                json.dump(self.minting_policy.script_data, policy_script_file)
+                json.dump(minting_policy.script_data, policy_script_file)
             signing_kwargs['script-file'] = policy_script_path
 
             policy_signing_key_path = os.path.join(self.intermediate_file_path, 'policy.skey')
             with open(policy_signing_key_path, 'w') as policy_signing_key_file:
-                json.dump(self.minting_policy.signing_key, policy_signing_key_file)
+                json.dump(minting_policy.signing_key, policy_signing_key_file)
             signing_args.append(('signing-key-file', policy_signing_key_path))
 
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
@@ -269,8 +277,8 @@ class Transaction(models.Model):
 class WalletManager(models.Manager):
     use_in_migrations = True
 
-    def create_from_path(self, path):
-        wallet = self.model()
+    def create_from_path(self, path, **kwargs):
+        wallet = self.model(**kwargs)
 
         with open(path / 'signing.key', 'r') as signing_key_file:
             wallet.payment_signing_key = json.load(signing_key_file)
@@ -654,7 +662,6 @@ class AbstractWallet(models.Model):
         }
         transaction = Transaction(
             payment_address=from_address,
-            minting_policy=policy,
             type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata
         )
@@ -698,6 +705,7 @@ class AbstractWallet(models.Model):
             transaction.submit(
                 fee=tx_fee,
                 mint=mint_argument,
+                minting_policy=policy,
                 metadata=transaction.metadata,
             )
 
@@ -707,6 +715,31 @@ class AbstractWallet(models.Model):
         return transaction, tx_fee
 
 
+# ---------------------------------------------------------------------------------
+class MintingPolicy(AbstractMintingPolicy):
+    class Meta:
+        swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
+
+
+def get_minting_policy_model():
+    """
+    Return the MintingPolicy model that is active in this project.
+    """
+    try:
+        return django_apps.get_model(
+            settings.DJANGO_CARDANO_MINTING_POLICY_MODEL,
+            require_ready=True
+        )
+    except ValueError:
+        raise ImproperlyConfigured("DJANGO_CARDANO_MINTING_POLICY_MODEL must be of the form 'app_label.model_name'")
+    except LookupError:
+        raise ImproperlyConfigured(
+            "DJANGO_CARDANO_MINTING_POLICY_MODEL refers to model '%s' that has not been installed"
+            % settings.DJANGO_CARDANO_MINTING_POLICY_MODEL
+        )
+
+
+# ---------------------------------------------------------------------------------
 class Wallet(AbstractWallet):
     class Meta(AbstractWallet.Meta):
         swappable = 'DJANGO_CARDANO_WALLET_MODEL'
@@ -717,11 +750,15 @@ def get_wallet_model():
     Return the Wallet model that is active in this project.
     """
     try:
-        return django_apps.get_model(settings.DJANGO_CARDANO_WALLET_MODEL, require_ready=True)
+        return django_apps.get_model(
+            settings.DJANGO_CARDANO_WALLET_MODEL,
+            require_ready=True
+        )
     except ValueError:
         raise ImproperlyConfigured("DJANGO_CARDANO_WALLET_MODEL must be of the form 'app_label.model_name'")
     except LookupError:
         raise ImproperlyConfigured(
-            "DJANGO_CARDANO_WALLET_MODEL refers to model '%s' that has not been installed" % settings.DJANGO_CARDANO_WALLET_MODEL
+            "DJANGO_CARDANO_WALLET_MODEL refers to model '%s' that has not been installed"
+                % settings.DJANGO_CARDANO_WALLET_MODEL
         )
 
