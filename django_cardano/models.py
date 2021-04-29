@@ -376,11 +376,6 @@ class AbstractWallet(models.Model):
         return self.payment_address
 
     @property
-    def payment_address_info(self):
-        response = self.cli.run('address info', address=self.payment_address)
-        return json.loads(response)
-
-    @property
     def utxos(self) -> list:
         utxos = []
 
@@ -485,7 +480,7 @@ class AbstractWallet(models.Model):
 
         return transaction, tx_fee
 
-    def send_tokens(self, token_quantity, asset_id, to_address, dry_run=False) -> (Transaction, int):
+    def send_tokens(self, asset_id, token_quantity, to_address, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 

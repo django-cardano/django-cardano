@@ -40,7 +40,7 @@ class DjangoCardanoTestCase(TestCase):
         try:
             wallet = Wallet.objects.create(name='Test Wallet')
 
-            address_info = wallet.payment_address_info
+            address_info = self.cardano.address_info(wallet.payment_address)
             self.assertEqual(address_info['type'], 'payment')
             self.assertEqual(address_info['encoding'], 'bech32')
             self.assertEqual(address_info['era'], 'shelley')
@@ -88,8 +88,8 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_tokens(self):
         self.wallet.send_tokens(
-            1,
             'd491fdc194c0d988459ce05a65c8a52259433e84d7162765570aa581.MMTestTokenTwo',
+            1,
             to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
         )
 

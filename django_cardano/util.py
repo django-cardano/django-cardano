@@ -27,3 +27,7 @@ class CardanoUtils:
     def query_tip(self) -> dict:
         response = self.cli.run('query tip', network=settings.NETWORK)
         return json.loads(response)
+
+    def address_info(self, address):
+        response = self.cli.run('address info', address=address)
+        return json.loads(response)
