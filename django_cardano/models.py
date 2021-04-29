@@ -108,22 +108,20 @@ class TransactionTypes(models.IntegerChoices):
 
 class Transaction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    date_created = models.DateTimeField(auto_now_add=True, editable=False)
-    date_submitted = models.DateTimeField(blank=True, null=True)
 
     payment_address = models.CharField(max_length=128)
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
     signed_tx_data = models.JSONField(blank=True, null=True)
-    tx_type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
+    type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
-    def __init__(self, minting_policy=None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
-        self.minting_policy = minting_policy
+        self.minting_policy = None
 
     @property
     def intermediate_file_path(self):
@@ -434,7 +432,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=from_address,
-            tx_type=TransactionTypes.LOVELACE_PAYMENT
+            type=TransactionTypes.LOVELACE_PAYMENT
         )
 
         # Get the transaction hash and index of the UTxO(s) to spend
@@ -501,7 +499,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=payment_address,
-            tx_type=TransactionTypes.TOKEN_PAYMENT
+            type=TransactionTypes.TOKEN_PAYMENT
         )
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
@@ -576,7 +574,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=payment_address,
-            tx_type=TransactionTypes.TOKEN_CONSOLIDATION
+            type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
         # Traverse the set of utxos at the given wallet's payment address,
@@ -659,11 +657,11 @@ class AbstractWallet(models.Model):
             }
         }
         transaction = Transaction(
-            minting_policy=policy,
             payment_address=from_address,
-            tx_type=TransactionTypes.TOKEN_MINT,
+            type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata,
         )
+        transaction.minting_policy = policy
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
         # sufficient ADA to pay for the transaction (including fees)
