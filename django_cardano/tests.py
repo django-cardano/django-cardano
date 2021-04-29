@@ -67,9 +67,10 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_lovelace(self):
         lovelace_requested = 1000000
+        to_address = 'addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7'
         draft_transaction, tx_fee = self.wallet.send_lovelace(
             lovelace_requested,
-            to_address='addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7',
+            to_address=to_address,
             dry_run=True
         )
         self.assertTrue(isinstance(draft_transaction, Transaction))
@@ -78,7 +79,7 @@ class DjangoCardanoTestCase(TestCase):
 
         transaction, tx_fee = self.wallet.send_lovelace(
             lovelace_requested,
-            to_address='addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7',
+            to_address=to_address,
         )
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(tx_fee, int))
