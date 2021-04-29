@@ -230,9 +230,9 @@ class Transaction(models.Model):
         WalletClass = get_wallet_model()
         wallet = WalletClass.objects.get(payment_address=self.payment_address)
 
-        foo = json.loads(wallet.payment_signing_key)        
+        payment_signing_key = json.loads(wallet.payment_signing_key)
         with open(self.signing_key_file_path, 'w') as signing_key_file:
-            json.dump(foo, signing_key_file)
+            json.dump(payment_signing_key, signing_key_file)
         signing_args.append(('signing-key-file', self.signing_key_file_path))
 
         if self.minting_policy:
@@ -421,24 +421,25 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, lovelace_requested, to_address) -> None:
+    def send_lovelace(self, lovelace_requested, to_address) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
-        utxos = self.utxos
 
         # The protocol's declared txFeeFixed will give us a fair estimate
         # of how much the fee for this transaction will be.
         protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
-        transaction = Transaction.objects.create(
+        transaction = Transaction(
             payment_address=from_address,
             type=TransactionTypes.LOVELACE_PAYMENT
         )
 
         # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
-        sorted_lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
+        sorted_lovelace_utxos = sort_utxos(
+            filter_utxos(self.utxos, type=lovelace_unit)
+        )
 
         total_lovelace_being_sent = 0
         for utxo in sorted_lovelace_utxos:
@@ -460,9 +461,6 @@ class AbstractWallet(models.Model):
             ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
         ]
 
-        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
-        transaction.save()
-
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
@@ -480,7 +478,12 @@ class AbstractWallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def send_tokens(self, token_quantity, asset_id, to_address) -> None:
+        # Let successful transactions be persisted to the database
+        transaction.save()
+
+        return transaction
+
+    def send_tokens(self, token_quantity, asset_id, to_address) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
@@ -493,8 +496,8 @@ class AbstractWallet(models.Model):
             # This will be used to pay for the transaction.
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
-        transaction = Transaction.objects.create(
-            payment_address=from_address,
+        transaction = Transaction(
+            payment_address=payment_address,
             type=TransactionTypes.TOKEN_PAYMENT
         )
 
@@ -541,9 +544,6 @@ class AbstractWallet(models.Model):
         # The last output represents the lovelace being returned to the payment wallet
         transaction.outputs.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
 
-        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
-        transaction.save()
-
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
@@ -560,12 +560,17 @@ class AbstractWallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def consolidate_utxos(self) -> None:
+        # Let successful transactions be persisted to the database
+        transaction.save()
+
+        return transaction
+
+    def consolidate_utxos(self) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
-        transaction = Transaction.objects.create(
+        transaction = Transaction(
             payment_address=payment_address,
             type=TransactionTypes.TOKEN_CONSOLIDATION
         )
@@ -593,9 +598,6 @@ class AbstractWallet(models.Model):
         # this output will be replaced by one that accounts for that fee.
         transaction.outputs.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
 
-        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
-        transaction.save()
-
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
@@ -612,7 +614,12 @@ class AbstractWallet(models.Model):
 
         transaction.submit(fee=tx_fee)
 
-    def mint_nft(self, policy, asset_name, metadata, to_address) -> None:
+        # Let successful transactions be persisted to the database
+        transaction.save()
+
+        return transaction
+
+    def mint_nft(self, policy, asset_name, metadata, to_address) -> Transaction:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -620,9 +627,10 @@ class AbstractWallet(models.Model):
         """
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
-        _, utxos = self.balance
 
-        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
+        lovelace_utxos = sort_utxos(
+            filter_utxos(self.utxos, type=lovelace_unit)
+        )
         if not lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
             # This will be used to pay for the transaction.
@@ -643,7 +651,7 @@ class AbstractWallet(models.Model):
                 }
             }
         }
-        transaction = Transaction.objects.create(
+        transaction = Transaction(
             payment_address=from_address,
             minting_policy=policy,
             type=TransactionTypes.TOKEN_MINT,
@@ -666,9 +674,6 @@ class AbstractWallet(models.Model):
             ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
             ('tx-out', f'{from_address}+{lovelace_to_return}')
         ]
-
-        # CHECKPOINT: persist the transaction once its inputs and outputs have been established
-        transaction.save()
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -693,6 +698,11 @@ class AbstractWallet(models.Model):
             mint=mint_argument,
             metadata=transaction.metadata,
         )
+
+        # Let successful transactions be persisted to the database
+        transaction.save()
+
+        return transaction
 
 
 class Wallet(AbstractWallet):
