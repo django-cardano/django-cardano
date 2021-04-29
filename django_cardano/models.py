@@ -116,7 +116,7 @@ class Transaction(models.Model):
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
     signed_tx_data = models.JSONField(blank=True, null=True)
-    type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
+    tx_type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     def __init__(self, minting_policy=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -124,7 +124,6 @@ class Transaction(models.Model):
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
         self.minting_policy = minting_policy
-
 
     @property
     def intermediate_file_path(self):
@@ -435,7 +434,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=from_address,
-            type=TransactionTypes.LOVELACE_PAYMENT
+            tx_type=TransactionTypes.LOVELACE_PAYMENT
         )
 
         # Get the transaction hash and index of the UTxO(s) to spend
@@ -502,7 +501,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=payment_address,
-            type=TransactionTypes.TOKEN_PAYMENT
+            tx_type=TransactionTypes.TOKEN_PAYMENT
         )
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
@@ -577,7 +576,7 @@ class AbstractWallet(models.Model):
 
         transaction = Transaction(
             payment_address=payment_address,
-            type=TransactionTypes.TOKEN_CONSOLIDATION
+            tx_type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
         # Traverse the set of utxos at the given wallet's payment address,
@@ -662,7 +661,7 @@ class AbstractWallet(models.Model):
         transaction = Transaction(
             minting_policy=policy,
             payment_address=from_address,
-            type=TransactionTypes.TOKEN_MINT,
+            tx_type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata,
         )
 
