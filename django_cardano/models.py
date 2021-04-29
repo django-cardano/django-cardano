@@ -405,6 +405,7 @@ class AbstractWallet(models.Model):
                 asset_count = int(token_info[0])
                 asset_type = token_info[1]
                 utxo_info['Tokens'][asset_type] = asset_count
+
             utxos.append(utxo_info)
 
         return utxos
@@ -412,8 +413,8 @@ class AbstractWallet(models.Model):
     @property
     def balance(self) -> tuple:
         utxos = self.utxos
-
         all_tokens = defaultdict(int)
+
         for utxo in utxos:
             utxo_tokens = utxo['Tokens']
             for token_id, token_count in utxo_tokens.items():
