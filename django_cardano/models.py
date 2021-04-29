@@ -118,12 +118,12 @@ class Transaction(models.Model):
     signed_tx_data = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, minting_policy=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
-        self.minting_policy = None
+        self.minting_policy = minting_policy
 
 
     @property
@@ -249,15 +249,15 @@ class Transaction(models.Model):
                 json.dump(minting_policy.script_data, policy_script_file)
             signing_kwargs['script-file'] = policy_script_path
 
+            policy_signing_key = json.loads(minting_policy.signing_key)
             policy_signing_key_path = os.path.join(self.intermediate_file_path, 'policy.skey')
             with open(policy_signing_key_path, 'w') as policy_signing_key_file:
-                json.dump(minting_policy.signing_key, policy_signing_key_file)
+                json.dump(policy_signing_key, policy_signing_key_file)
             signing_args.append(('signing-key-file', policy_signing_key_path))
 
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
         with open(self.signed_tx_file_path, 'r') as signed_tx_file:
             self.signed_tx_data = json.load(signed_tx_file)
-            self.save()
 
         # Submit the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#submit-the-transaction
@@ -267,7 +267,6 @@ class Transaction(models.Model):
         })
 
         self.date_submitted = timezone.now()
-        self.save()
 
         # Clean up intermediate files
         shutil.rmtree(self.intermediate_file_path)
@@ -661,9 +660,10 @@ class AbstractWallet(models.Model):
             }
         }
         transaction = Transaction(
+            minting_policy=policy,
             payment_address=from_address,
             type=TransactionTypes.TOKEN_MINT,
-            metadata=tx_metadata
+            metadata=tx_metadata,
         )
 
         # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
@@ -677,8 +677,8 @@ class AbstractWallet(models.Model):
         total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
 
+        transaction.inputs = [('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx']))]
         transaction.outputs = [
-            ('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx'])),
             ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
             ('tx-out', f'{from_address}+{lovelace_to_return}')
         ]
