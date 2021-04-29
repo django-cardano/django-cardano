@@ -417,7 +417,7 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, lovelace_requested, to_address, dry_run=False) -> (Transaction, int):
+    def send_lovelace(self, quantity, to_address, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
 
@@ -446,14 +446,14 @@ class AbstractWallet(models.Model):
 
             # Validate whether the included UTxOs are sufficient to cover
             # the lovelace being transferred, including the estimated tx_fee.
-            if total_lovelace_being_sent >= lovelace_requested + estimated_tx_fee:
+            if total_lovelace_being_sent >= quantity + estimated_tx_fee:
                 break
 
         # There will ALWAYS be exactly two output transactions:
         #   - The funds being sent to the recipient
         #   - The "change" being returned to the sender
         transaction.outputs = [
-            ('tx-out', f'{to_address}+{lovelace_requested}'),
+            ('tx-out', f'{to_address}+{quantity}'),
             ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
         ]
 
@@ -470,7 +470,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            lovelace_to_return = total_lovelace_being_sent - lovelace_requested - tx_fee
+            lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
             transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
             transaction.submit(fee=tx_fee)
@@ -480,7 +480,7 @@ class AbstractWallet(models.Model):
 
         return transaction, tx_fee
 
-    def send_tokens(self, asset_id, token_quantity, to_address, dry_run=False) -> (Transaction, int):
+    def send_tokens(self, asset_id, quantity, to_address, dry_run=False) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
@@ -516,11 +516,11 @@ class AbstractWallet(models.Model):
             # Accumulate the total amount of lovelace being sent
             total_lovelace_being_sent += utxo['Tokens'][lovelace_unit]
 
-            if total_tokens_being_sent >= token_quantity:
+            if total_tokens_being_sent >= quantity:
                 break
 
-        if total_tokens_being_sent < token_quantity:
-            raise CardanoError(f'Insufficient tokens. Requested: {token_quantity}, Available: {total_tokens_being_sent}')
+        if total_tokens_being_sent < quantity:
+            raise CardanoError(f'Insufficient tokens. Requested: {quantity}, Available: {total_tokens_being_sent}')
 
         lovelace_to_return = total_lovelace_being_sent
 
@@ -529,11 +529,11 @@ class AbstractWallet(models.Model):
         token_dust = cardano_settings.DEFAULT_DUST       
 
         # Let the first transaction output represent the tokens being sent to the recipient
-        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{token_quantity} {token_id}"')]
+        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{quantity} {token_id}"')]
         lovelace_to_return -= token_dust
 
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
-        tokens_to_return = total_tokens_being_sent - token_quantity
+        tokens_to_return = total_tokens_being_sent - quantity
         if tokens_to_return > 0:
             transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{tokens_to_return} {token_id}"'))
             lovelace_to_return -= token_dust
