@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 from django.test.signals import setting_changed
 from django.utils.module_loading import import_string
@@ -6,13 +8,13 @@ from django.utils.module_loading import import_string
 USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
-    'CLI_PATH': '/path/to/cardano-cli',
+    'CLI_PATH': os.environ.get('CARDANO_CLI_PATH'),
     'DEFAULT_DUST': 2000000,
     'DEFAULT_TRANSACTION_TTL': 1000,
-    'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
+    'INTERMEDIATE_FILE_PATH': os.environ.get('CARDANO_INTERMEDIATE_FILE_PATH'),
     'LOVELACE_UNIT': 'lovelace',
-    'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
-    'NETWORK': 'mainnet',
+    'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
+    'NETWORK': os.environ.get('CARDANO_NETWORK', 'mainnet'),
     'TESTNET_MAGIC': '1097911063',
 }
 

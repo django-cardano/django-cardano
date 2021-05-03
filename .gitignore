@@ -2,11 +2,11 @@ __pycache__
 
 *.egg-info
 .idea
+.env
 *.pyc
 
 /dist
 /env
-/intermediate
-/settings/local
+/data
 
 *.sqlite3

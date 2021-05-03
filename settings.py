@@ -1,14 +1,19 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
-DEBUG = True
+PROJECT_PATH = Path(__file__).resolve().parent
 
-ALLOWED_HOSTS = []
-ENVIRONMENT = os.environ.get('DJANGO_ENV', 'production')
-PROJECT_PATH = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_PATH / '.env')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '2ox@%(q%va#li3__mv7-y^(+w_(_$-0cr^amsrj^n_43z*4t$t'
+DEBUG = int(os.environ.get("DEBUG", default=0))
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
+# 'DJANGO_ALLOWED_HOSTS' should be a single string of hosts with a space between each.
+# For example: 'DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1 [::1]'
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS").split(" ")
+
+
 
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
@@ -69,14 +74,5 @@ USE_TZ = True
 STATIC_URL = '/static/'
 
 # ------------------------------------------------------------------------------
-DJANGO_CARDANO = {
-    'DEFAULT_DUST': 2000000,
-    'CLI_PATH': '/path/to/cardano-cli',
-    'INTERMEDIATE_FILE_PATH': '/writable/path/for/intermediate/files',
-    'LOVELACE_UNIT': 'lovelace',
-    'NODE_SOCKET_PATH': '/path/to/cardano/node.socket',
-    'NETWORK': 'mainnet',
-    'TESTNET_MAGIC': '1097911063',
-}
 DJANGO_CARDANO_WALLET_MODEL = 'django_cardano.Wallet'
 DJANGO_CARDANO_MINTING_POLICY_MODEL = 'django_cardano.MintingPolicy'
