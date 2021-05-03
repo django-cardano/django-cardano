@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .util import CardanoUtils
 
 Wallet = get_wallet_model()
 
+DEFAULT_WALLET_PASSWORD = 'fL;$qR9FZ3?stf-M'
 
 class DjangoCardanoTestCase(TestCase):
     @classmethod
@@ -28,6 +30,14 @@ class DjangoCardanoTestCase(TestCase):
                 raise ValueError(f'Invalid wallet data path: {test_wallet_data_path}')
             cls.wallet = Wallet.objects.create_from_path(Path(test_wallet_data_path))
 
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+
+        # Discard the associated key files
+        shutil.rmtree(cls.wallet.data_path)
+
+
     def test_query_tip(self):
         tip_info = self.cardano.query_tip()
 
@@ -38,7 +48,10 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_create_wallet(self):
         try:
-            wallet = Wallet.objects.create(name='Test Wallet')
+            wallet = Wallet.objects.create(
+                name='Test Wallet',
+                password=DEFAULT_WALLET_PASSWORD
+            )
 
             address_info = self.cardano.address_info(wallet.payment_address)
             self.assertEqual(address_info['type'], 'payment')
