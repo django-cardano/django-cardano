@@ -5,13 +5,13 @@ from pathlib import Path
 
 from django.test import TestCase
 
-from .exceptions import CardanoError
-from .models import (
+from ..exceptions import CardanoError
+from ..models import (
     get_wallet_model,
     MintingPolicy,
     Transaction,
 )
-from .util import CardanoUtils
+from ..util import CardanoUtils
 
 Wallet = get_wallet_model()
 
@@ -26,11 +26,9 @@ class DjangoCardanoTestCase(TestCase):
     def setUpClass(cls):
         super().setUpClass()
 
-        test_wallet_data_path = os.environ.get('CARDANO_TEST_WALLET_DATA_PATH')
-        if test_wallet_data_path:
-            if not os.path.exists(test_wallet_data_path):
-                raise ValueError(f'Invalid wallet data path: {test_wallet_data_path}')
-            cls.wallet = Wallet.objects.create_from_path(Path(test_wallet_data_path))
+        CWD = Path(__file__).resolve().parent
+        cls.wallet = Wallet.objects.create_from_path(CWD / 'data')
+
 
     @classmethod
     def tearDownClass(cls):

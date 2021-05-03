@@ -8,5 +8,6 @@ __pycache__
 /dist
 /env
 /data
+/**/tests/data
 
 *.sqlite3
