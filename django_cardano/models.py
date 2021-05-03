@@ -43,52 +43,55 @@ def file_upload_path(instance, filename):
 
 
 class MintingPolicyManager(models.Manager):
-    def create(self, **kwargs):
+    def create(self, password, **kwargs):
         policy = self.model(**kwargs)
 
         cardano_cli = CardanoCLI()
 
-        intermediate_file_path = create_intermediate_directory('policy', str(policy.id))
+        intermediate_file_path = Path(policy.intermediate_file_path)
         os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
 
         # 1. Create signing/verification keys for the minting policy
-        policy_signing_key_path = os.path.join(intermediate_file_path, 'minting_policy.skey')
-        policy_verification_key_path = os.path.join(intermediate_file_path, 'minting_policy.vkey')
-        policy_script_path = os.path.join(intermediate_file_path, 'minting_policy.script')
+        signing_key_path = intermediate_file_path / 'signing.key'
+        verification_key_path = intermediate_file_path / 'verification.key'
         cardano_cli.run('address key-gen', **{
-            'signing-key-file': policy_signing_key_path,
-            'verification-key-file': policy_verification_key_path,
+            'signing-key-file': signing_key_path,
+            'verification-key-file': verification_key_path,
         })
 
-        # 2. Attach the generated key files to the Policy record
-        # (Note: stored values will be encrypted)
-        with open(policy_signing_key_path, 'r') as signing_key_file:
-            policy.signing_key = json.load(signing_key_file)
-        with open(policy_verification_key_path, 'r') as verification_key_file:
-            policy.verification_key = json.load(verification_key_file)
+        # 2. Encrypt the generated key files and attach them to the Policy record
+        for field_name, file_path in {
+            'signing_key': signing_key_path,
+            'verification_key': verification_key_path,
+        }.items():
+            with open(file_path, 'rb') as fp:
+                filename = file_path.name
+                fCiph = io.BytesIO()
+                pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                file_field = getattr(policy, field_name)
+                file_field.save(f'{filename}.aes', fCiph, save=False)
 
         policy_key_hash = cardano_cli.run('address key-hash', **{
-            'payment-verification-key-file': policy_verification_key_path,
+            'payment-verification-key-file': verification_key_path,
         })
 
-        # 3. Construct the policy script and write it to a temporary
-        # file to be used in generating the policy ID
-        policy.script_data = {
+        # 3. Construct the policy script and attach to the Policy record
+        policy_script_data = json.dumps({
             'keyHash': policy_key_hash,
             'type': 'sig'
-        }
-
-        with open(policy_script_path, 'w') as policy_script_file:
-            json.dump(policy.script_data, policy_script_file)
-        policy.policy_id = cardano_cli.run('transaction policyid', **{
-            'script-file': policy_script_path
         })
+        with ContentFile(policy_script_data) as file_content:
+            policy.script.save('policy.script.json', file_content, save=False)
 
-        policy.save(force_insert=True, using=self.db)
+        # 4. Determine the policy ID (i.e. compute hash of the policy script)
+        policy.policy_id = cardano_cli.run('transaction policyid', **{
+            'script-file': policy.script.url
+        })
 
         # 4. Discard all intermediate files used in the creation of the policy
         shutil.rmtree(intermediate_file_path)
 
+        policy.save(force_insert=True, using=self.db)
         return policy
 
 
@@ -96,7 +99,7 @@ class AbstractMintingPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     policy_id = models.CharField(max_length=64)
 
-    script_data = models.FileField(max_length=200, upload_to=file_upload_path)
+    script = models.FileField(max_length=200, upload_to=file_upload_path)
     signing_key = models.FileField(max_length=200, upload_to=file_upload_path)
     verification_key = models.FileField(max_length=200, upload_to=file_upload_path)
 
@@ -112,6 +115,13 @@ class AbstractMintingPolicy(models.Model):
     def data_path(self):
         return Path(settings.APP_DATA_PATH, 'policy', str(self.id))
 
+    @property
+    def intermediate_file_path(self):
+        return os.path.join(
+            cardano_settings.INTERMEDIATE_FILE_PATH,
+            'policy',
+            str(self.id),
+        )
 
 class TransactionTypes(models.IntegerChoices):
     LOVELACE_PAYMENT = 1
@@ -164,6 +174,10 @@ class Transaction(models.Model):
     @property
     def signing_key_file_path(self):
         return os.path.join(self.intermediate_file_path, 'signing.key')
+
+    @property
+    def policy_signing_key_file_path(self):
+        return os.path.join(self.intermediate_file_path, 'policy-signing.key')
 
     @property
     def tx_args(self):
@@ -259,16 +273,15 @@ class Transaction(models.Model):
         )
 
         if minting_policy:
-            policy_script_path = os.path.join(self.intermediate_file_path, 'policy.script')
-            with open(policy_script_path, 'w') as policy_script_file:
-                json.dump(minting_policy.script_data, policy_script_file)
-            signing_kwargs['script-file'] = policy_script_path
+            signing_kwargs['script-file'] = minting_policy.script.url
 
-            policy_signing_key = json.loads(minting_policy.signing_key)
-            policy_signing_key_path = os.path.join(self.intermediate_file_path, 'policy.skey')
-            with open(policy_signing_key_path, 'w') as policy_signing_key_file:
-                json.dump(policy_signing_key, policy_signing_key_file)
-            signing_args.append(('signing-key-file', policy_signing_key_path))
+            pyAesCrypt.decryptFile(
+                minting_policy.signing_key.url,
+                self.policy_signing_key_file_path,
+                password,
+                ENCRYPTION_BUFFER_SIZE
+            )
+            signing_args.append(('signing-key-file', self.policy_signing_key_file_path))
 
         # Sign the transaction
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)

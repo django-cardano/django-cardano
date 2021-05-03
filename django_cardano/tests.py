@@ -111,7 +111,12 @@ class DjangoCardanoTestCase(TestCase):
         self.wallet.consolidate_utxos()
 
     def test_create_minting_policy(self):
-        minting_policy = MintingPolicy.objects.create()
+        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
+        policy_script_path = minting_policy.script.url
+        self.assertTrue(os.path.exists(policy_script_path))
+
+        # Scrap the generated policy script and associated keys
+        shutil.rmtree(minting_policy.data_path)
 
 
     def test_mint_nft(self):
