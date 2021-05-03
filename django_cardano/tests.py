@@ -99,7 +99,6 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(tx_fee, int))
         self.assertFalse(transaction._state.adding)
 
-
     def test_send_tokens(self):
         self.wallet.send_tokens(
             'd491fdc194c0d988459ce05a65c8a52259433e84d7162765570aa581.MMTestTokenTwo',
@@ -125,7 +124,6 @@ class DjangoCardanoTestCase(TestCase):
             'name': 'MintMachine Test NFT',
             'description': 'An image that _should_ exist in perpetuity',
             'image': 'https://i.imgur.com/6zJM4Eh.png',
-            'ticker': 'MINTMACHINE'
         }
 
         self.wallet.mint_nft(
