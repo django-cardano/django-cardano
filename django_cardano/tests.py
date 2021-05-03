@@ -22,7 +22,7 @@ class DjangoCardanoTestCase(TestCase):
 
         cls.cardano = CardanoUtils()
 
-        test_wallet_data_path = os.environ.get('TEST_WALLET_DATA_PATH')
+        test_wallet_data_path = os.environ.get('CARDANO_TEST_WALLET_DATA_PATH')
         if test_wallet_data_path:
             if not os.path.exists(test_wallet_data_path):
                 raise ValueError(f'Invalid wallet data path: {test_wallet_data_path}')
@@ -48,9 +48,9 @@ class DjangoCardanoTestCase(TestCase):
         except CardanoError as e:
             print(e)
 
-    def test_get_wallet_info(self):
-        wallet_info = self.wallet.payment_address_info
-        self.assertTrue(isinstance(wallet_info, dict))
+    def test_get_address_info(self):
+        address_info = self.cardano.address_info(self.wallet.payment_address)
+        self.assertTrue(isinstance(address_info, dict))
 
     def test_get_utxos(self):
         utxos = self.wallet.utxos
