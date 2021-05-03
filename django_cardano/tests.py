@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .util import CardanoUtils
 
 Wallet = get_wallet_model()
 
+DEFAULT_WALLET_PASSWORD = 'fL;$qR9FZ3?stf-M'
 
 class DjangoCardanoTestCase(TestCase):
     @classmethod
@@ -28,6 +30,14 @@ class DjangoCardanoTestCase(TestCase):
                 raise ValueError(f'Invalid wallet data path: {test_wallet_data_path}')
             cls.wallet = Wallet.objects.create_from_path(Path(test_wallet_data_path))
 
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+
+        # Discard the associated key files
+        shutil.rmtree(cls.wallet.data_path)
+
+
     def test_query_tip(self):
         tip_info = self.cardano.query_tip()
 
@@ -38,7 +48,10 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_create_wallet(self):
         try:
-            wallet = Wallet.objects.create(name='Test Wallet')
+            wallet = Wallet.objects.create(
+                name='Test Wallet',
+                password=DEFAULT_WALLET_PASSWORD
+            )
 
             address_info = self.cardano.address_info(wallet.payment_address)
             self.assertEqual(address_info['type'], 'payment')
@@ -67,11 +80,11 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_lovelace(self):
         lovelace_requested = 1000000
-        to_address = 'addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7'
+        to_address = self.wallet.payment_address
+
         draft_transaction, tx_fee = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
-            dry_run=True
         )
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(tx_fee, int))
@@ -80,35 +93,48 @@ class DjangoCardanoTestCase(TestCase):
         transaction, tx_fee = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
+            password=DEFAULT_WALLET_PASSWORD,
         )
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(tx_fee, int))
         self.assertFalse(transaction._state.adding)
 
-
-
     def test_send_tokens(self):
         self.wallet.send_tokens(
             'd491fdc194c0d988459ce05a65c8a52259433e84d7162765570aa581.MMTestTokenTwo',
             1,
-            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            to_address=self.wallet.payment_address,
         )
 
     def test_consolidate_utxos(self):
         self.wallet.consolidate_utxos()
 
+    def test_create_minting_policy(self):
+        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
+        policy_script_path = minting_policy.script.url
+        self.assertTrue(os.path.exists(policy_script_path))
+
+        # Scrap the generated policy script and associated keys
+        shutil.rmtree(minting_policy.data_path)
+
     def test_mint_nft(self):
-        minting_policy = MintingPolicy.objects.create()
+        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
 
         metadata = {
             'name': 'MintMachine Test NFT',
             'description': 'An image that _should_ exist in perpetuity',
             'image': 'https://i.imgur.com/6zJM4Eh.png',
-            'ticker': 'MINTMACHINE'
         }
+
         self.wallet.mint_nft(
             minting_policy,
-            str(uuid.uuid4()),
-            metadata,
-            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            asset_name=str(uuid.uuid4()),
+            metadata=metadata,
+            to_address=self.wallet.payment_address,
+            spending_password=DEFAULT_WALLET_PASSWORD,
+            minting_password=DEFAULT_WALLET_PASSWORD,
         )
+
+        # Scrap the generated policy script and associated keys
+        shutil.rmtree(minting_policy.data_path)
+
