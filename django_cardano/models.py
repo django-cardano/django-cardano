@@ -237,9 +237,13 @@ class Transaction(models.Model):
         }
 
         minting_policy = None
+        minting_password = None
         if 'minting_policy' in cmd_kwargs:
             minting_policy = cmd_kwargs['minting_policy']
             del cmd_kwargs['minting_policy']
+        if 'minting_password' in cmd_kwargs:
+            minting_password = cmd_kwargs['minting_password']
+            del cmd_kwargs['minting_password']
 
         if 'metadata' in cmd_kwargs:
             cmd_kwargs.update({
@@ -278,7 +282,7 @@ class Transaction(models.Model):
             pyAesCrypt.decryptFile(
                 minting_policy.signing_key.url,
                 self.policy_signing_key_file_path,
-                password,
+                minting_password,
                 ENCRYPTION_BUFFER_SIZE
             )
             signing_args.append(('signing-key-file', self.policy_signing_key_file_path))
@@ -668,7 +672,8 @@ class AbstractWallet(models.Model):
 
         return transaction, tx_fee
 
-    def mint_nft(self, policy, asset_name, metadata, to_address, password=None) -> (Transaction, int):
+    def mint_nft(self, policy, asset_name, metadata, to_address,
+                 spending_password, minting_password) -> (Transaction, int):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -739,7 +744,7 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        if password:
+        if spending_password and minting_password:
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
@@ -747,10 +752,11 @@ class AbstractWallet(models.Model):
 
             transaction.submit(
                 fee=tx_fee,
-                password=password,
+                password=spending_password,
                 mint=mint_argument,
-                minting_policy=policy,
                 metadata=transaction.metadata,
+                minting_policy=policy,
+                minting_password=minting_password,
             )
 
             # Let successful transactions be persisted to the database

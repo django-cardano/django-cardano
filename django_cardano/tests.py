@@ -118,9 +118,8 @@ class DjangoCardanoTestCase(TestCase):
         # Scrap the generated policy script and associated keys
         shutil.rmtree(minting_policy.data_path)
 
-
     def test_mint_nft(self):
-        minting_policy = MintingPolicy.objects.create()
+        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
 
         metadata = {
             'name': 'MintMachine Test NFT',
@@ -128,9 +127,16 @@ class DjangoCardanoTestCase(TestCase):
             'image': 'https://i.imgur.com/6zJM4Eh.png',
             'ticker': 'MINTMACHINE'
         }
+
         self.wallet.mint_nft(
             minting_policy,
-            str(uuid.uuid4()),
-            metadata,
+            asset_name=str(uuid.uuid4()),
+            metadata=metadata,
             to_address=self.wallet.payment_address,
+            spending_password=DEFAULT_WALLET_PASSWORD,
+            minting_password=DEFAULT_WALLET_PASSWORD,
         )
+
+        # Scrap the generated policy script and associated keys
+        shutil.rmtree(minting_policy.data_path)
+
