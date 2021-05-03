@@ -96,7 +96,7 @@ class AbstractMintingPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     policy_id = models.CharField(max_length=64)
 
-    script_data = models.JSONField()
+    script_data = models.FileField(max_length=200, upload_to=file_upload_path)
     signing_key = models.FileField(max_length=200, upload_to=file_upload_path)
     verification_key = models.FileField(max_length=200, upload_to=file_upload_path)
 
@@ -163,7 +163,7 @@ class Transaction(models.Model):
 
     @property
     def signing_key_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'transaction.skey')
+        return os.path.join(self.intermediate_file_path, 'signing.key')
 
     @property
     def tx_args(self):
@@ -206,7 +206,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, fee, **tx_kwargs):
+    def submit(self, fee, password, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -241,6 +241,7 @@ class Transaction(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#sign-the-transaction
         signing_args = []
         signing_kwargs = {
+            'signing-key-file': self.signing_key_file_path,
             'tx-body-file': self.raw_tx_file_path,
             'out-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
@@ -249,10 +250,13 @@ class Transaction(models.Model):
         WalletClass = get_wallet_model()
         wallet = WalletClass.objects.get(payment_address=self.payment_address)
 
-        payment_signing_key = json.loads(wallet.payment_signing_key)
-        with open(self.signing_key_file_path, 'w') as signing_key_file:
-            json.dump(payment_signing_key, signing_key_file)
-        signing_args.append(('signing-key-file', self.signing_key_file_path))
+        # Decrypt this wallet's signing key and save it as an intermediate file
+        pyAesCrypt.decryptFile(
+            wallet.payment_signing_key.url,
+            self.signing_key_file_path,
+            password,
+            ENCRYPTION_BUFFER_SIZE
+        )
 
         if minting_policy:
             policy_script_path = os.path.join(self.intermediate_file_path, 'policy.script')
@@ -266,9 +270,8 @@ class Transaction(models.Model):
                 json.dump(policy_signing_key, policy_signing_key_file)
             signing_args.append(('signing-key-file', policy_signing_key_path))
 
+        # Sign the transaction
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
-        with open(self.signed_tx_file_path, 'r') as signed_tx_file:
-            self.signed_tx_data = json.load(signed_tx_file)
 
         # Submit the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#submit-the-transaction
@@ -278,9 +281,6 @@ class Transaction(models.Model):
         })
 
         self.date_submitted = timezone.now()
-
-        # Clean up intermediate files
-        shutil.rmtree(self.intermediate_file_path)
 
 
 # ------------------------------------------------------------------------------
@@ -442,7 +442,7 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, quantity, to_address, dry_run=False) -> (Transaction, int):
+    def send_lovelace(self, quantity, to_address, password=None) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
 
@@ -491,21 +491,27 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        if not dry_run:
+        if password:
+            # If a password was given, this implies the intention to commit the
+            # transaction to the blockchain (vs. performing a dry-run)
+
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
             transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-            transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee, password=password)
 
             # Let successful transactions be persisted to the database
             transaction.save()
 
+        # Clean up intermediate files
+        shutil.rmtree(transaction.intermediate_file_path)
+
         return transaction, tx_fee
 
-    def send_tokens(self, asset_id, quantity, to_address, dry_run=False) -> (Transaction, int):
+    def send_tokens(self, asset_id, quantity, to_address, password=None) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
@@ -575,20 +581,23 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        if not dry_run:
+        if password:
             # Calculate the change to return the payment address
             # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-            transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee, password=password)
 
             # Let successful transactions be persisted to the database
             transaction.save()
 
+        # Clean up intermediate files
+        shutil.rmtree(transaction.intermediate_file_path)
+
         return transaction, tx_fee
 
-    def consolidate_utxos(self, dry_run=False) -> (Transaction, int):
+    def consolidate_utxos(self, password=None) -> (Transaction, int):
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
@@ -630,26 +639,29 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        if not dry_run:
+        if password:
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-            transaction.submit(fee=tx_fee)
+            transaction.submit(fee=tx_fee, password=password)
 
             # Let successful transactions be persisted to the database
             transaction.save()
 
+        # Clean up intermediate files
+        shutil.rmtree(transaction.intermediate_file_path)
+
         return transaction, tx_fee
 
-    def mint_nft(self, policy, asset_name, metadata, to_address, dry_run=False) -> (Transaction, int):
+    def mint_nft(self, policy, asset_name, metadata, to_address, password=None) -> (Transaction, int):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
         :param metadata: Wallet with sufficient funds to mint the token
         :param to_address: Address to send minted token to
-        :param dry_run: If enabled, return the transaction draft
+        :param password: Password required to decrypt signing key
         """
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
@@ -714,7 +726,7 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
         tx_fee = transaction.calculate_min_fee()
 
-        if not dry_run:
+        if password:
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
@@ -722,6 +734,7 @@ class AbstractWallet(models.Model):
 
             transaction.submit(
                 fee=tx_fee,
+                password=password,
                 mint=mint_argument,
                 minting_policy=policy,
                 metadata=transaction.metadata,
@@ -729,6 +742,9 @@ class AbstractWallet(models.Model):
 
             # Let successful transactions be persisted to the database
             transaction.save()
+
+        # Clean up intermediate files
+        shutil.rmtree(transaction.intermediate_file_path)
 
         return transaction, tx_fee
 
