@@ -17,12 +17,14 @@ Wallet = get_wallet_model()
 
 DEFAULT_WALLET_PASSWORD = 'fL;$qR9FZ3?stf-M'
 
+
 class DjangoCardanoTestCase(TestCase):
+    cardano = CardanoUtils()
+    wallet = None
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-
-        cls.cardano = CardanoUtils()
 
         test_wallet_data_path = os.environ.get('CARDANO_TEST_WALLET_DATA_PATH')
         if test_wallet_data_path:
