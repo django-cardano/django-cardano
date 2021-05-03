@@ -67,7 +67,7 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_send_lovelace(self):
         lovelace_requested = 1000000
-        to_address = 'addr_test1qrw7nlpnda79j0we7supfpzqfepcl2tncppla23k0pk8p5jrhjed4h58xc3d2ghuj2y24q9l0gz40y0w92a6z6zp3eqqvtjgr7'
+        to_address = self.wallet.payment_address
         draft_transaction, tx_fee = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
@@ -86,16 +86,19 @@ class DjangoCardanoTestCase(TestCase):
         self.assertFalse(transaction._state.adding)
 
 
-
     def test_send_tokens(self):
         self.wallet.send_tokens(
             'd491fdc194c0d988459ce05a65c8a52259433e84d7162765570aa581.MMTestTokenTwo',
             1,
-            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            to_address=self.wallet.payment_address,
         )
 
     def test_consolidate_utxos(self):
         self.wallet.consolidate_utxos()
+
+    def test_create_minting_policy(self):
+        minting_policy = MintingPolicy.objects.create()
+
 
     def test_mint_nft(self):
         minting_policy = MintingPolicy.objects.create()
@@ -110,5 +113,5 @@ class DjangoCardanoTestCase(TestCase):
             minting_policy,
             str(uuid.uuid4()),
             metadata,
-            to_address='addr_test1qrgf9v6zp884850vquxqw95zygp39xaxprfk4uzw5m9r4qlzvt0efu2dq9mmwp7v60wz5gsxz2d5vmewez5r7cf0c6vq0wlk3d',
+            to_address=self.wallet.payment_address,
         )

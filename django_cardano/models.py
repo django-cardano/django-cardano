@@ -10,8 +10,6 @@ from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from django_cryptography.fields import encrypt
-
 from .cli import (
     CardanoCLI,
     MIN_FEE_RE,
@@ -87,8 +85,8 @@ class AbstractMintingPolicy(models.Model):
     policy_id = models.CharField(max_length=64)
 
     script_data = models.JSONField()
-    signing_key = encrypt(models.JSONField())
-    verification_key = encrypt(models.JSONField())
+    # signing_key = encrypt(models.JSONField())
+    # verification_key = encrypt(models.JSONField())
 
     objects = MintingPolicyManager()
 
@@ -359,12 +357,12 @@ class AbstractWallet(models.Model):
     name = models.CharField(max_length=30)
 
     payment_address = models.CharField(max_length=128)
-    payment_signing_key = encrypt(models.JSONField())
-    payment_verification_key = encrypt(models.JSONField())
+    # payment_signing_key = encrypt(models.JSONField())
+    # payment_verification_key = encrypt(models.JSONField())
 
     stake_address = models.CharField(max_length=128)
-    stake_signing_key = encrypt(models.JSONField())
-    stake_verification_key = encrypt(models.JSONField())
+    # stake_signing_key = encrypt(models.JSONField())
+    # stake_verification_key = encrypt(models.JSONField())
 
     objects = WalletManager()
 
