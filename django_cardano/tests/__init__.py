@@ -107,7 +107,7 @@ class DjangoCardanoTestCase(TestCase):
         )
 
     def test_consolidate_utxos(self):
-        self.wallet.consolidate_utxos()
+        self.wallet.consolidate_utxos(password=DEFAULT_WALLET_PASSWORD)
 
     def test_create_minting_policy(self):
         minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
