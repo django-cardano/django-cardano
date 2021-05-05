@@ -23,8 +23,8 @@ class DjangoCardanoTestCase(TestCase):
     wallet = None
 
     @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUpTestData(cls):
+        super().setUpTestData()
 
         CWD = Path(__file__).resolve().parent
         cls.wallet = Wallet.objects.create_from_path(CWD / 'data')

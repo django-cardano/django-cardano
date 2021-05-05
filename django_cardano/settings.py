@@ -14,7 +14,7 @@ DEFAULTS = {
     'LOVELACE_UNIT': 'lovelace',
     'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
     'NETWORK': os.environ.get('CARDANO_NETWORK', 'mainnet'),
-    'TESTNET_MAGIC': '1097911063',
+    'TESTNET_MAGIC': os.environ.get('CARDANO_TESTNET_MAGIC'),
 }
 
 IMPORT_STRINGS = (
