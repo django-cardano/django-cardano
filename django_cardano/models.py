@@ -113,7 +113,7 @@ class AbstractMintingPolicy(models.Model):
 
     @property
     def data_path(self):
-        return Path(settings.APP_DATA_PATH, 'policy', str(self.id))
+        return Path(os.environ.get('CARDANO_APP_DATA_PATH'), 'policy', str(self.id))
 
     @property
     def intermediate_file_path(self):
@@ -415,7 +415,7 @@ class AbstractWallet(models.Model):
 
     @property
     def data_path(self):
-        return Path(settings.APP_DATA_PATH, 'wallet', str(self.id))
+        return Path(os.environ.get('CARDANO_APP_DATA_PATH'), 'wallet', str(self.id))
 
     @property
     def utxos(self) -> list:

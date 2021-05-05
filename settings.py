@@ -3,8 +3,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 PROJECT_PATH = Path(__file__).resolve().parent
-DATA_PATH = PROJECT_PATH / 'data'
-APP_DATA_PATH = DATA_PATH / 'app'
 
 load_dotenv(PROJECT_PATH / '.env')
 
