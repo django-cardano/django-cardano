@@ -89,7 +89,7 @@ class MintingPolicyManager(models.Manager):
 
         # 4. Determine the policy ID (i.e. compute hash of the policy script)
         policy.policy_id = cardano_cli.run('transaction policyid', **{
-            'script-file': policy.script.url
+            'script-file': policy.script.path
         })
 
         # 4. Discard all intermediate files used in the creation of the policy
@@ -282,17 +282,17 @@ class Transaction(models.Model):
 
         # Decrypt this wallet's signing key and save it as an intermediate file
         pyAesCrypt.decryptFile(
-            wallet.payment_signing_key.url,
+            wallet.payment_signing_key.path,
             self.signing_key_file_path,
             password,
             ENCRYPTION_BUFFER_SIZE
         )
 
         if minting_policy:
-            signing_kwargs['script-file'] = minting_policy.script.url
+            signing_kwargs['script-file'] = minting_policy.script.path
 
             pyAesCrypt.decryptFile(
-                minting_policy.signing_key.url,
+                minting_policy.signing_key.path,
                 self.policy_signing_key_file_path,
                 minting_password,
                 ENCRYPTION_BUFFER_SIZE
