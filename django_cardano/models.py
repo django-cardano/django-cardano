@@ -14,6 +14,7 @@ from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import ContentFile
+from django.utils.text import slugify
 
 from .cli import (
     CardanoCLI,
@@ -29,6 +30,7 @@ from .shortcuts import (
     filter_utxos,
     sort_utxos,
 )
+from .storage import CardanoDataStorage
 
 from django_cardano.settings import (
     django_cardano_settings as cardano_settings
@@ -37,9 +39,11 @@ from django_cardano.settings import (
 # Size of buffer supplied used for encryption of signing keys
 ENCRYPTION_BUFFER_SIZE = 4 * 1024
 
+
 # ------------------------------------------------------------------------------
 def file_upload_path(instance, filename):
-    return instance.data_path / filename
+    model_name = slugify(instance._meta.verbose_name)
+    return Path(model_name, str(instance.id), filename)
 
 
 class MintingPolicyManager(models.Manager):
@@ -99,9 +103,21 @@ class AbstractMintingPolicy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     policy_id = models.CharField(max_length=64)
 
-    script = models.FileField(max_length=200, upload_to=file_upload_path)
-    signing_key = models.FileField(max_length=200, upload_to=file_upload_path)
-    verification_key = models.FileField(max_length=200, upload_to=file_upload_path)
+    script = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
+    signing_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
+    verification_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
 
     objects = MintingPolicyManager()
 
@@ -110,10 +126,6 @@ class AbstractMintingPolicy(models.Model):
 
     def __str__(self):
         return self.policy_id
-
-    @property
-    def data_path(self):
-        return Path(os.environ.get('CARDANO_APP_DATA_PATH'), 'policy', str(self.id))
 
     @property
     def intermediate_file_path(self):
@@ -393,12 +405,28 @@ class AbstractWallet(models.Model):
     name = models.CharField(max_length=30)
 
     payment_address = models.CharField(max_length=128)
-    payment_signing_key = models.FileField(max_length=200, upload_to=file_upload_path)
-    payment_verification_key = models.FileField(max_length=200, upload_to=file_upload_path)
+    payment_signing_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
+    payment_verification_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
 
     stake_address = models.CharField(max_length=128)
-    stake_signing_key = models.FileField(max_length=200, upload_to=file_upload_path)
-    stake_verification_key = models.FileField(max_length=200, upload_to=file_upload_path)
+    stake_signing_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
+    stake_verification_key = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
 
     objects = WalletManager()
 
@@ -412,10 +440,6 @@ class AbstractWallet(models.Model):
 
     def __str__(self):
         return self.payment_address
-
-    @property
-    def data_path(self):
-        return Path(os.environ.get('CARDANO_APP_DATA_PATH'), 'wallet', str(self.id))
 
     @property
     def utxos(self) -> list:

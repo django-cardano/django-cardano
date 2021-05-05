@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from django.test import TestCase
+from django.utils.text import slugify
 
 from ..exceptions import CardanoError
 from ..models import (
@@ -16,6 +17,12 @@ from ..util import CardanoUtils
 Wallet = get_wallet_model()
 
 DEFAULT_WALLET_PASSWORD = 'fL;$qR9FZ3?stf-M'
+
+
+def data_path_for_model(instance):
+    base_path = os.environ.get('CARDANO_APP_DATA_PATH')
+    model_name = slugify(instance._meta.verbose_name)
+    return Path(base_path, model_name, str(instance.id))
 
 
 class DjangoCardanoTestCase(TestCase):
@@ -35,7 +42,7 @@ class DjangoCardanoTestCase(TestCase):
         super().tearDownClass()
 
         # Discard the associated key files
-        shutil.rmtree(cls.wallet.data_path)
+        shutil.rmtree(data_path_for_model(cls.wallet))
 
 
     def test_query_tip(self):
@@ -58,6 +65,8 @@ class DjangoCardanoTestCase(TestCase):
             self.assertEqual(address_info['encoding'], 'bech32')
             self.assertEqual(address_info['era'], 'shelley')
             self.assertEqual(address_info['address'], wallet.payment_address)
+
+            shutil.rmtree(data_path_for_model(wallet))
         except CardanoError as e:
             print(e)
 
@@ -115,7 +124,7 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(os.path.exists(policy_script_path))
 
         # Scrap the generated policy script and associated keys
-        shutil.rmtree(minting_policy.data_path)
+        shutil.rmtree(data_path_for_model(minting_policy))
 
     def test_mint_nft(self):
         minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
@@ -136,5 +145,4 @@ class DjangoCardanoTestCase(TestCase):
         )
 
         # Scrap the generated policy script and associated keys
-        shutil.rmtree(minting_policy.data_path)
-
+        shutil.rmtree(data_path_for_model(minting_policy))
