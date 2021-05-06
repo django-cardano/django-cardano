@@ -281,12 +281,15 @@ class Transaction(models.Model):
         wallet = WalletClass.objects.get(payment_address=self.payment_address)
 
         # Decrypt this wallet's signing key and save it as an intermediate file
-        pyAesCrypt.decryptFile(
-            wallet.payment_signing_key.path,
-            self.signing_key_file_path,
-            password,
-            ENCRYPTION_BUFFER_SIZE
-        )
+        try:
+            pyAesCrypt.decryptFile(
+                wallet.payment_signing_key.path,
+                self.signing_key_file_path,
+                password,
+                ENCRYPTION_BUFFER_SIZE
+            )
+        except ValueError as e:
+            raise CardanoError(str(e))
 
         if minting_policy:
             signing_kwargs['script-file'] = minting_policy.script.path
