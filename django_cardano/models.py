@@ -128,12 +128,9 @@ class AbstractMintingPolicy(models.Model):
         return self.policy_id
 
     @property
-    def intermediate_file_path(self):
-        return os.path.join(
-            cardano_settings.INTERMEDIATE_FILE_PATH,
-            'policy',
-            str(self.id),
-        )
+    def intermediate_file_path(self) -> Path:
+        return Path(cardano_settings.INTERMEDIATE_FILE_PATH, 'policy', str(self.id))
+
 
 class TransactionTypes(models.IntegerChoices):
     LOVELACE_PAYMENT = 1
@@ -159,39 +156,35 @@ class Transaction(models.Model):
         self.minting_policy = None
 
     @property
-    def intermediate_file_path(self):
-        return os.path.join(
-            cardano_settings.INTERMEDIATE_FILE_PATH,
-            'tx',
-            str(self.id),
-        )
+    def intermediate_file_path(self) -> Path:
+        return Path(cardano_settings.INTERMEDIATE_FILE_PATH, 'tx', str(self.id))
 
     @property
-    def metadata_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'metadata.json')
+    def metadata_file_path(self) -> Path:
+        return self.intermediate_file_path / 'metadata.json'
 
     @property
-    def draft_tx_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'transaction.draft')
+    def draft_tx_file_path(self) -> Path:
+        return self.intermediate_file_path / 'transaction.draft'
 
     @property
-    def raw_tx_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'transaction.raw')
+    def raw_tx_file_path(self) -> Path:
+        return self.intermediate_file_path / 'transaction.raw'
 
     @property
-    def signed_tx_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'transaction.signed')
+    def signed_tx_file_path(self) -> Path:
+        return self.intermediate_file_path / 'transaction.signed'
 
     @property
-    def signing_key_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'signing.key')
+    def signing_key_file_path(self) -> Path:
+        return self.intermediate_file_path / 'signing.key'
 
     @property
-    def policy_signing_key_file_path(self):
-        return os.path.join(self.intermediate_file_path, 'policy-signing.key')
+    def policy_signing_key_file_path(self) -> Path:
+        return self.intermediate_file_path / 'policy-signing.key'
 
     @property
-    def tx_args(self):
+    def tx_args(self) -> list:
         return self.inputs + self.outputs
 
     def generate_draft(self, **kwargs):
@@ -213,7 +206,7 @@ class Transaction(models.Model):
 
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
-    def calculate_min_fee(self):
+    def calculate_min_fee(self) -> int:
         tx_body_file_path = Path(self.draft_tx_file_path)
         if not tx_body_file_path.exists():
             raise CardanoError('Unable to calculate minimum fee; require transaction body file.')
@@ -232,7 +225,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, wallet, fee, password, **tx_kwargs):
+    def submit(self, wallet, fee, password, **tx_kwargs) -> str:
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction

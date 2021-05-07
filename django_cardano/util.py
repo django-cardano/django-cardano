@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 from .cli import CardanoCLI
 from .settings import django_cardano_settings as settings
@@ -14,7 +15,7 @@ class CardanoUtils:
         if not os.path.exists(settings.INTERMEDIATE_FILE_PATH):
             os.makedirs(settings.INTERMEDIATE_FILE_PATH, 0o755)
 
-        self.protocol_parameters_path = os.path.join(settings.INTERMEDIATE_FILE_PATH, 'protocol.json')
+        self.protocol_parameters_path = Path(settings.INTERMEDIATE_FILE_PATH, 'protocol.json')
 
     def refresh_protocol_parameters(self) -> dict:
         self.cli.run('query protocol-parameters', **{

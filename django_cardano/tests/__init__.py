@@ -33,8 +33,8 @@ class DjangoCardanoTestCase(TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
 
-        CWD = Path(__file__).resolve().parent
-        cls.wallet = Wallet.objects.create_from_path(CWD / 'data')
+        cwd = Path(__file__).resolve().parent
+        cls.wallet = Wallet.objects.create_from_path(cwd / 'data')
 
 
     @classmethod
@@ -123,8 +123,8 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_create_minting_policy(self):
         minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
-        policy_script_path = minting_policy.script.url
-        self.assertTrue(os.path.exists(policy_script_path))
+        policy_script_path = Path(minting_policy.script.path)
+        self.assertTrue(policy_script_path.exists())
 
         # Scrap the generated policy script and associated keys
         shutil.rmtree(data_path_for_model(minting_policy))
