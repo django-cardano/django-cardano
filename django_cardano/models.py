@@ -214,8 +214,9 @@ class Transaction(models.Model):
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
     def calculate_min_fee(self):
-        if not os.path.exists(self.draft_tx_file_path):
-            raise CardanoError('Unable to calculate minimum fee; require draft transaction.')
+        tx_body_file_path = Path(self.draft_tx_file_path)
+        if not tx_body_file_path.exists():
+            raise CardanoError('Unable to calculate minimum fee; require transaction body file.')
 
         self.cardano_utils.refresh_protocol_parameters()
 
@@ -484,7 +485,7 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, quantity, to_address, password=None) -> (Transaction, int):
+    def send_lovelace(self, quantity, to_address, password=None) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
 
@@ -493,9 +494,7 @@ class AbstractWallet(models.Model):
         protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
-        transaction = Transaction(
-            type=TransactionTypes.LOVELACE_PAYMENT
-        )
+        transaction = Transaction(type=TransactionTypes.LOVELACE_PAYMENT)
 
         # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
@@ -528,13 +527,12 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
         transaction.generate_draft()
 
-        # Calculate the fee
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
-        tx_fee = transaction.calculate_min_fee()
-
+        # If a password was given, this implies the intention to commit the
+        # transaction to the blockchain (vs. performing a dry-run)
         if password:
-            # If a password was given, this implies the intention to commit the
-            # transaction to the blockchain (vs. performing a dry-run)
+            # Calculate the fee
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+            tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
@@ -546,12 +544,12 @@ class AbstractWallet(models.Model):
             transaction.tx_id = transaction.submit(wallet=self, fee=tx_fee, password=password)
             transaction.save()
 
-        # Clean up intermediate files
-        shutil.rmtree(transaction.intermediate_file_path)
+            # Clean up intermediate files
+            shutil.rmtree(transaction.intermediate_file_path)
 
-        return transaction, tx_fee
+        return transaction
 
-    def send_tokens(self, asset_id, quantity, to_address, password=None) -> (Transaction, int):
+    def send_tokens(self, asset_id, quantity, to_address, password=None) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
@@ -564,9 +562,7 @@ class AbstractWallet(models.Model):
             # This will be used to pay for the transaction.
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
-        transaction = Transaction(
-            type=TransactionTypes.TOKEN_PAYMENT
-        )
+        transaction = Transaction(type=TransactionTypes.TOKEN_PAYMENT)
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
         # to pay for the transaction (including fees)
@@ -616,11 +612,11 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
         transaction.generate_draft()
 
-        # Calculate the fee
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
-        tx_fee = transaction.calculate_min_fee()
-
         if password:
+            # Calculate the fee
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+            tx_fee = transaction.calculate_min_fee()
+
             # Calculate the change to return the payment address
             # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
@@ -631,19 +627,17 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-        # Clean up intermediate files
-        shutil.rmtree(transaction.intermediate_file_path)
+            # Clean up intermediate files
+            shutil.rmtree(transaction.intermediate_file_path)
 
-        return transaction, tx_fee
+        return transaction
 
-    def consolidate_utxos(self, password=None) -> (Transaction, int):
+    def consolidate_utxos(self, password=None) -> Transaction:
         lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
-        transaction = Transaction(
-            type=TransactionTypes.TOKEN_CONSOLIDATION
-        )
+        transaction = Transaction(type=TransactionTypes.TOKEN_CONSOLIDATION)
 
         # Traverse the set of utxos at the given wallet's payment address,
         # accumulating the total count of each type of token.
@@ -673,11 +667,11 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
         transaction.generate_draft()
 
-        # Calculate the fee
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
-        tx_fee = transaction.calculate_min_fee()
-
         if password:
+            # Calculate the fee
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+            tx_fee = transaction.calculate_min_fee()
+
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
@@ -688,13 +682,13 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-        # Clean up intermediate files
-        shutil.rmtree(transaction.intermediate_file_path)
+            # Clean up intermediate files
+            shutil.rmtree(transaction.intermediate_file_path)
 
-        return transaction, tx_fee
+        return transaction
 
     def mint_nft(self, policy, asset_name, metadata, to_address,
-                 spending_password, minting_password) -> (Transaction, int):
+                 spending_password, minting_password) -> Transaction:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -760,11 +754,11 @@ class AbstractWallet(models.Model):
             metadata=transaction.metadata
         )
 
-        # Calculate the fee
-        # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
-        tx_fee = transaction.calculate_min_fee()
-
         if spending_password and minting_password:
+            # Calculate the fee
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+            tx_fee = transaction.calculate_min_fee()
+
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
@@ -783,10 +777,10 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-        # Clean up intermediate files
-        shutil.rmtree(transaction.intermediate_file_path)
+            # Clean up intermediate files
+            shutil.rmtree(transaction.intermediate_file_path)
 
-        return transaction, tx_fee
+        return transaction
 
 
 # ---------------------------------------------------------------------------------

@@ -91,19 +91,22 @@ class DjangoCardanoTestCase(TestCase):
         lovelace_requested = 1000000
         to_address = self.wallet.payment_address
 
-        draft_transaction, tx_fee = self.wallet.send_lovelace(
+        draft_transaction = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
         )
+        draft_tx_fee = draft_transaction.calculate_min_fee()
+
         self.assertTrue(isinstance(draft_transaction, Transaction))
-        self.assertTrue(isinstance(tx_fee, int))
+        self.assertTrue(isinstance(draft_tx_fee, int))
         self.assertTrue(draft_transaction._state.adding)
 
-        transaction, tx_fee = self.wallet.send_lovelace(
+        transaction = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
             password=DEFAULT_WALLET_PASSWORD,
         )
+        tx_fee = draft_transaction.calculate_min_fee()
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(tx_fee, int))
         self.assertFalse(transaction._state.adding)
