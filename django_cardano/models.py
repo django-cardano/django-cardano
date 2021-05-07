@@ -225,7 +225,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, wallet, fee, password, **tx_kwargs) -> str:
+    def submit(self, wallet, fee, password, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -295,15 +295,15 @@ class Transaction(models.Model):
         # Sign the transaction
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
 
+        self.tx_id = self.cli.run('transaction txid', **{
+            'tx-file': self.signed_tx_file_path
+        })
+
         # Submit the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#submit-the-transaction
         self.cli.run('transaction submit', **{
             'tx-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
-        })
-
-        return self.cli.run('transaction txid', **{
-            'tx-file': self.signed_tx_file_path
         })
 
 
@@ -534,7 +534,7 @@ class AbstractWallet(models.Model):
             transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
             # Let successful transactions be persisted to the database
-            transaction.tx_id = transaction.submit(wallet=self, fee=tx_fee, password=password)
+            transaction.submit(wallet=self, fee=tx_fee, password=password)
             transaction.save()
 
             # Clean up intermediate files
