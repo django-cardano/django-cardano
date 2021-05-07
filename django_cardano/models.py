@@ -144,12 +144,11 @@ class TransactionTypes(models.IntegerChoices):
 
 class Transaction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tx_id = models.CharField(max_length=64, blank=True, null=True)
 
-    payment_address = models.CharField(max_length=128)
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
-    signed_tx_data = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     def __init__(self, *args, **kwargs):
@@ -232,7 +231,7 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, fee, password, **tx_kwargs):
+    def submit(self, wallet, fee, password, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
@@ -277,9 +276,6 @@ class Transaction(models.Model):
             'network': cardano_settings.NETWORK
         }
 
-        WalletClass = get_wallet_model()
-        wallet = WalletClass.objects.get(payment_address=self.payment_address)
-
         # Decrypt this wallet's signing key and save it as an intermediate file
         try:
             pyAesCrypt.decryptFile(
@@ -312,7 +308,9 @@ class Transaction(models.Model):
             'network': cardano_settings.NETWORK
         })
 
-        self.date_submitted = timezone.now()
+        return self.cli.run('transaction txid', **{
+            'tx-file': self.signed_tx_file_path
+        })
 
 
 # ------------------------------------------------------------------------------
@@ -496,7 +494,6 @@ class AbstractWallet(models.Model):
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
         transaction = Transaction(
-            payment_address=from_address,
             type=TransactionTypes.LOVELACE_PAYMENT
         )
 
@@ -545,9 +542,8 @@ class AbstractWallet(models.Model):
             lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
             transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
 
-            transaction.submit(fee=tx_fee, password=password)
-
             # Let successful transactions be persisted to the database
+            transaction.tx_id = transaction.submit(wallet=self, fee=tx_fee, password=password)
             transaction.save()
 
         # Clean up intermediate files
@@ -569,7 +565,6 @@ class AbstractWallet(models.Model):
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
         transaction = Transaction(
-            payment_address=payment_address,
             type=TransactionTypes.TOKEN_PAYMENT
         )
 
@@ -631,7 +626,7 @@ class AbstractWallet(models.Model):
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
 
-            transaction.submit(fee=tx_fee, password=password)
+            transaction.submit(wallet=self, fee=tx_fee, password=password)
 
             # Let successful transactions be persisted to the database
             transaction.save()
@@ -647,7 +642,6 @@ class AbstractWallet(models.Model):
         all_tokens, utxos = self.balance
 
         transaction = Transaction(
-            payment_address=payment_address,
             type=TransactionTypes.TOKEN_CONSOLIDATION
         )
 
@@ -689,7 +683,7 @@ class AbstractWallet(models.Model):
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
 
-            transaction.submit(fee=tx_fee, password=password)
+            transaction.submit(wallet=self, fee=tx_fee, password=password)
 
             # Let successful transactions be persisted to the database
             transaction.save()
@@ -735,7 +729,6 @@ class AbstractWallet(models.Model):
             }
         }
         transaction = Transaction(
-            payment_address=from_address,
             type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata,
         )
@@ -778,6 +771,7 @@ class AbstractWallet(models.Model):
             transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return - tx_fee}')
 
             transaction.submit(
+                wallet=self,
                 fee=tx_fee,
                 password=spending_password,
                 mint=mint_argument,
