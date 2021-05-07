@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django_cardano.exceptions import CardanoError
 from django_cardano.util import CardanoUtils
 
+
 @deconstructible
 class CardanoAddressValidator:
     message = _('Enter a valid cardano address.')
@@ -20,8 +21,7 @@ class CardanoAddressValidator:
         cardano_utils = CardanoUtils()
 
         try:
-            address_info = cardano_utils.address_info(value)
-            foo = address_info
+            cardano_utils.address_info(value)
         except CardanoError:
             raise ValidationError(self.message, code=self.code)
 

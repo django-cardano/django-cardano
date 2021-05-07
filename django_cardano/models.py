@@ -21,7 +21,7 @@ from .cli import (
     UTXO_RE,
 )
 
-from .db.models.fields import CardanoAddressField
+from .fields import CardanoAddressField
 from .exceptions import CardanoError
 from .util import CardanoUtils
 

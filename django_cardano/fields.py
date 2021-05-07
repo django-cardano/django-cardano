@@ -1,7 +1,7 @@
 from django.db.models import CharField
 from django.utils.translation import gettext_lazy as _
 
-from django_cardano import validators
+from . import validators
 
 __all__ = [
     'CardanoAddressField',
