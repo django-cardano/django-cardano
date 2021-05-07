@@ -9,7 +9,6 @@ from collections import defaultdict
 from pathlib import Path
 
 from django.db import models
-from django.utils import timezone
 from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -21,6 +20,8 @@ from .cli import (
     MIN_FEE_RE,
     UTXO_RE,
 )
+
+from .db.models.fields import CardanoAddressField
 from .exceptions import CardanoError
 from .util import CardanoUtils
 
@@ -331,6 +332,7 @@ class WalletManager(models.Manager):
                     field = getattr(wallet, field_name)
                     field.save(file_path.name, file_content, save=False)
 
+        wallet.full_clean()
         wallet.save(force_insert=True, using=self.db)
 
         return wallet
@@ -390,6 +392,7 @@ class WalletManager(models.Manager):
         # the raw files be discarded (successfully) before the wallet is finalized.
         shutil.rmtree(intermediate_file_path)
 
+        wallet.full_clean()
         wallet.save(force_insert=True, using=self.db)
         return wallet
 
@@ -397,9 +400,9 @@ class WalletManager(models.Manager):
 class AbstractWallet(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    name = models.CharField(max_length=30)
+    name = models.CharField(max_length=30, blank=True)
 
-    payment_address = models.CharField(max_length=128)
+    payment_address = CardanoAddressField()
     payment_signing_key = models.FileField(
         max_length=200,
         upload_to=file_upload_path,
@@ -411,7 +414,7 @@ class AbstractWallet(models.Model):
         storage=CardanoDataStorage
     )
 
-    stake_address = models.CharField(max_length=128)
+    stake_address = CardanoAddressField()
     stake_signing_key = models.FileField(
         max_length=200,
         upload_to=file_upload_path,
