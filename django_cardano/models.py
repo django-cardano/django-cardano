@@ -684,24 +684,30 @@ class AbstractWallet(models.Model):
         return transaction
 
     def mint_nft(self, policy, asset_name, metadata, to_address,
-                 spending_password, minting_password) -> Transaction:
+                 spending_password, minting_password,
+                 payment_utxo=None, surplus_wallet=None) -> Transaction:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
-        :param asset_name: name component of the unique asset ID (<policy_id>.<asset_name>)
-        :param metadata: Wallet with sufficient funds to mint the token
+        :param policy: Minting policy to apply to the NFT
+        :param asset_name: Name component of the unique asset ID (<policy_id>.<asset_name>)
+        :param metadata: Metadata to include in the minting transaction
         :param to_address: Address to send minted token to
-        :param password: Password required to decrypt signing key
+        :param spending_password: Password required to decrypt wallet signing key
+        :param minting_password: Password required to decrypt policy signing key
+        :param source_utxo: Specific
         """
         lovelace_unit = cardano_settings.LOVELACE_UNIT
-        from_address = self.payment_address
+        surplus_address = surplus_wallet.payment_address if surplus_wallet else self.payment_address
 
-        lovelace_utxos = sort_utxos(
-            filter_utxos(self.utxos, type=lovelace_unit)
-        )
-        if not lovelace_utxos:
-            # Let there be be at least one UTxO containing purely ADA.
-            # This will be used to pay for the transaction.
-            raise CardanoError(f'Address {from_address} has inadequate funds to complete transaction')
+        if not payment_utxo:
+            # If a payment utxo was not explicitly provided, we will use this wallet's largest
+            # UTxO with the assumption that it will cover the transaction (including fees)
+            lovelace_utxos = sort_utxos(filter_utxos(self.utxos, type=lovelace_unit))
+            if not lovelace_utxos:
+                # Let there be be at least one UTxO containing purely ADA.
+                # This will be used to pay for the transaction.
+                raise CardanoError(f'Inadequate funds to complete transaction')
+            payment_utxo = lovelace_utxos[0]
 
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
@@ -724,10 +730,6 @@ class AbstractWallet(models.Model):
         )
         transaction.minting_policy = policy
 
-        # ASSUMPTION: The payment wallet's largest ADA UTxO shall contain
-        # sufficient ADA to pay for the transaction (including fees)
-        payment_utxo = lovelace_utxos[0]
-        
         # HACK!! The amount of ADA accompanying a token needs to be computed
         # with respect to that token's properties
         token_dust = cardano_settings.DEFAULT_DUST
@@ -738,7 +740,7 @@ class AbstractWallet(models.Model):
         transaction.inputs = [('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx']))]
         transaction.outputs = [
             ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
-            ('tx-out', f'{from_address}+{lovelace_to_return}')
+            ('tx-out', f'{surplus_address}+{lovelace_to_return}')
         ]
 
         # Draft the transaction:
@@ -758,7 +760,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{surplus_address}+{lovelace_to_return - tx_fee}')
 
             transaction.submit(
                 wallet=self,
