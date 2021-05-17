@@ -8,7 +8,7 @@ USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
     'CLI_PATH': os.environ.get('CARDANO_CLI_PATH'),
-    'DEFAULT_DUST': 2000000,
+    'TOKEN_DUST': 2000000,
     'DEFAULT_TRANSACTION_TTL': 1000,
     'INTERMEDIATE_FILE_PATH': os.environ.get('CARDANO_INTERMEDIATE_FILE_PATH'),
     'LOVELACE_UNIT': 'lovelace',

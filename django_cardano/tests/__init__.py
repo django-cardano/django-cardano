@@ -1,4 +1,5 @@
 import os
+import random
 import shutil
 import uuid
 from pathlib import Path
@@ -36,14 +37,12 @@ class DjangoCardanoTestCase(TestCase):
         cwd = Path(__file__).resolve().parent
         cls.wallet = Wallet.objects.create_from_path(cwd / 'data')
 
-
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
 
         # Discard the associated key files
         shutil.rmtree(data_path_for_model(cls.wallet))
-
 
     def test_query_tip(self):
         tip_info = self.cardano.query_tip()
@@ -121,6 +120,16 @@ class DjangoCardanoTestCase(TestCase):
     def test_consolidate_utxos(self):
         self.wallet.consolidate_utxos(password=DEFAULT_WALLET_PASSWORD)
 
+    def test_partition_lovelace(self):
+        min_value = 1000000
+        max_value = 5000000
+        values = [random.randint(min_value, max_value) for i in range(0, 10)]
+        transaction = self.wallet.partition_lovelace(
+            values=values,
+            password=DEFAULT_WALLET_PASSWORD
+        )
+        print(transaction.tx_id)
+
     def test_create_minting_policy(self):
         minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
         policy_script_path = Path(minting_policy.script.path)
@@ -133,9 +142,9 @@ class DjangoCardanoTestCase(TestCase):
         minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
 
         metadata = {
-            'name': 'MintMachine Test NFT',
-            'description': 'An image that _should_ exist in perpetuity',
-            'image': 'https://i.imgur.com/6zJM4Eh.png',
+            'name': 'django-cardano Test NFT',
+            'description': 'The Cardano Logo (in SVG format)',
+            'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
         }
 
         self.wallet.mint_nft(
@@ -149,3 +158,5 @@ class DjangoCardanoTestCase(TestCase):
 
         # Scrap the generated policy script and associated keys
         shutil.rmtree(data_path_for_model(minting_policy))
+
+        minting_policy.delete()

@@ -40,6 +40,7 @@ from django_cardano.settings import (
 # Size of buffer supplied used for encryption of signing keys
 ENCRYPTION_BUFFER_SIZE = 4 * 1024
 
+lovelace_unit = cardano_settings.LOVELACE_UNIT
 
 # ------------------------------------------------------------------------------
 def file_upload_path(instance, filename):
@@ -138,6 +139,7 @@ class TransactionTypes(models.IntegerChoices):
     TOKEN_PAYMENT = 2
     TOKEN_MINT = 3
     TOKEN_CONSOLIDATION = 4
+    LOVELACE_PARTITION = 5
 
 
 class Transaction(models.Model):
@@ -482,7 +484,6 @@ class AbstractWallet(models.Model):
         return all_tokens, utxos
 
     def send_lovelace(self, quantity, to_address, password=None) -> Transaction:
-        lovelace_unit = cardano_settings.LOVELACE_UNIT
         from_address = self.payment_address
 
         # The protocol's declared txFeeFixed will give us a fair estimate
@@ -546,7 +547,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def send_tokens(self, asset_id, quantity, to_address, password=None) -> Transaction:
-        lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
 
         utxos = self.utxos
@@ -588,16 +588,16 @@ class AbstractWallet(models.Model):
 
         # HACK!! The amount of ADA accompanying a token needs to be computed
         # with respect to that token's properties
-        token_dust = cardano_settings.DEFAULT_DUST       
+        token_dust = cardano_settings.TOKEN_DUST
 
         # Let the first transaction output represent the tokens being sent to the recipient
-        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{quantity} {token_id}"')]
+        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{quantity} {asset_id}"')]
         lovelace_to_return -= token_dust
 
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
         tokens_to_return = total_tokens_being_sent - quantity
         if tokens_to_return > 0:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{tokens_to_return} {token_id}"'))
+            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{tokens_to_return} {asset_id}"'))
             lovelace_to_return -= token_dust
 
         # The last output represents the lovelace being returned to the payment wallet
@@ -629,7 +629,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def consolidate_utxos(self, password=None) -> Transaction:
-        lovelace_unit = cardano_settings.LOVELACE_UNIT
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
@@ -648,7 +647,7 @@ class AbstractWallet(models.Model):
         for asset_id, asset_count in all_tokens.items():
             # HACK!! The amount of ADA accompanying a token needs to be computed
             # with respect to that token's properties
-            token_dust = cardano_settings.DEFAULT_DUST           
+            token_dust = cardano_settings.TOKEN_DUST
             transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
             remaining_lovelace -= token_dust
 
@@ -683,6 +682,52 @@ class AbstractWallet(models.Model):
 
         return transaction
 
+    def partition_lovelace(self, values: list, password=None) -> Transaction:
+        """
+        Convert existing lovelace UTxOs into those of the given values.
+        (Useful for testing batch creation of NFTs.)
+        :param password:
+        :param values:
+        :return:
+        """
+        transaction = Transaction(type=TransactionTypes.LOVELACE_PARTITION)
+
+        surplus_lovelace = 0
+        lovelace_utxos = filter_utxos(self.utxos, type=lovelace_unit)
+        for utxo in lovelace_utxos:
+            tx_hash = utxo['TxHash']
+            tx_index = utxo['TxIx']
+            transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
+            surplus_lovelace += utxo['Tokens'][lovelace_unit]
+
+        payment_address = self.payment_address
+        for value in values:
+            transaction.outputs.append(('tx-out', f'{payment_address}+{value}'))
+            surplus_lovelace -= value
+        # This final output transaction shall contain the surplus (minus tx fee)
+        transaction.outputs.append(('tx-out', f'{payment_address}+{surplus_lovelace}'))
+
+        transaction.generate_draft()
+
+        if password:
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
+            tx_fee = transaction.calculate_min_fee()
+
+            # Calculate the change to return the payment address
+            # (minus transacction fee) and update that output respectively
+            # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
+            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{surplus_lovelace - tx_fee}')
+
+            transaction.submit(wallet=self, fee=tx_fee, password=password)
+
+            # Let successful transactions be persisted to the database
+            transaction.save()
+
+            # Clean up intermediate files
+            shutil.rmtree(transaction.intermediate_file_path)
+
+        return transaction
+
     def mint_nft(self, policy, asset_name, metadata, to_address,
                  spending_password, minting_password,
                  payment_utxo=None, surplus_wallet=None) -> Transaction:
@@ -696,7 +741,6 @@ class AbstractWallet(models.Model):
         :param minting_password: Password required to decrypt policy signing key
         :param source_utxo: Specific
         """
-        lovelace_unit = cardano_settings.LOVELACE_UNIT
         surplus_address = surplus_wallet.payment_address if surplus_wallet else self.payment_address
 
         if not payment_utxo:
@@ -732,7 +776,7 @@ class AbstractWallet(models.Model):
 
         # HACK!! The amount of ADA accompanying a token needs to be computed
         # with respect to that token's properties
-        token_dust = cardano_settings.DEFAULT_DUST
+        token_dust = cardano_settings.TOKEN_DUST
         
         total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
@@ -746,7 +790,6 @@ class AbstractWallet(models.Model):
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
-
         transaction.generate_draft(
             mint=mint_argument,
             metadata=transaction.metadata
