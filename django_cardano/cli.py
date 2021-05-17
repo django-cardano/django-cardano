@@ -41,7 +41,7 @@ class CardanoCLI:
             if options['network'] == 'mainnet':
                 process_args.append('--mainnet')
             elif options['network'] == 'testnet':
-                process_args += ['--testnet-magic', settings.TESTNET_MAGIC]
+                process_args += ['--testnet-magic', str(settings.TESTNET_MAGIC)]
             del options['network']
 
         for option_name, option_value in options.items():
