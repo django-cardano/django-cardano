@@ -17,7 +17,8 @@ from ..util import CardanoUtils
 
 Wallet = get_wallet_model()
 
-DEFAULT_WALLET_PASSWORD = 'fL;$qR9FZ3?stf-M'
+DEFAULT_SPENDING_PASSWORD = 'fL;$qR9FZ3?stf-M'
+DEFAULT_MINTING_PASSWORD = 'eMgP3AjU&6KRVTrU'
 
 
 def data_path_for_model(instance):
@@ -56,7 +57,7 @@ class DjangoCardanoTestCase(TestCase):
         try:
             wallet = Wallet.objects.create(
                 name='Test Wallet',
-                password=DEFAULT_WALLET_PASSWORD
+                password=DEFAULT_SPENDING_PASSWORD
             )
 
             address_info = self.cardano.address_info(wallet.payment_address)
@@ -99,16 +100,15 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(draft_tx_fee, int))
         self.assertTrue(draft_transaction._state.adding)
+        self.assertTrue(draft_transaction.intermediate_file_path.exists)
 
         transaction = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,
-            password=DEFAULT_WALLET_PASSWORD,
+            password=DEFAULT_SPENDING_PASSWORD,
         )
-        tx_fee = draft_transaction.calculate_min_fee()
-        self.assertTrue(isinstance(draft_transaction, Transaction))
-        self.assertTrue(isinstance(tx_fee, int))
         self.assertFalse(transaction._state.adding)
+        self.assertFalse(transaction.intermediate_file_path.exists())
 
     def test_send_tokens(self):
         self.wallet.send_tokens(
@@ -118,7 +118,7 @@ class DjangoCardanoTestCase(TestCase):
         )
 
     def test_consolidate_utxos(self):
-        self.wallet.consolidate_utxos(password=DEFAULT_WALLET_PASSWORD)
+        self.wallet.consolidate_utxos(password=DEFAULT_SPENDING_PASSWORD)
 
     def test_partition_lovelace(self):
         min_value = 1000000
@@ -126,12 +126,12 @@ class DjangoCardanoTestCase(TestCase):
         values = [random.randint(min_value, max_value) for i in range(0, 10)]
         transaction = self.wallet.partition_lovelace(
             values=values,
-            password=DEFAULT_WALLET_PASSWORD
+            password=DEFAULT_SPENDING_PASSWORD
         )
         print(transaction.tx_id)
 
     def test_create_minting_policy(self):
-        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
+        minting_policy = MintingPolicy.objects.create(password=DEFAULT_SPENDING_PASSWORD)
         policy_script_path = Path(minting_policy.script.path)
         self.assertTrue(policy_script_path.exists())
 
@@ -139,24 +139,16 @@ class DjangoCardanoTestCase(TestCase):
         shutil.rmtree(data_path_for_model(minting_policy))
 
     def test_mint_nft(self):
-        minting_policy = MintingPolicy.objects.create(password=DEFAULT_WALLET_PASSWORD)
-
         metadata = {
             'name': 'django-cardano Test NFT',
             'description': 'The Cardano Logo (in SVG format)',
             'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
         }
 
-        self.wallet.mint_nft(
-            minting_policy,
-            asset_name=str(uuid.uuid4()),
+        transaction = self.wallet.mint_nft(
+            asset_name="Test NFT",
             metadata=metadata,
             to_address=self.wallet.payment_address,
-            spending_password=DEFAULT_WALLET_PASSWORD,
-            minting_password=DEFAULT_WALLET_PASSWORD,
+            spending_password=DEFAULT_SPENDING_PASSWORD,
+            minting_password=DEFAULT_MINTING_PASSWORD,
         )
-
-        # Scrap the generated policy script and associated keys
-        shutil.rmtree(data_path_for_model(minting_policy))
-
-        minting_policy.delete()
