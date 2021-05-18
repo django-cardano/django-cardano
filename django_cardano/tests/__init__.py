@@ -1,7 +1,6 @@
 import os
 import random
 import shutil
-import uuid
 from pathlib import Path
 
 from django.test import TestCase
