@@ -643,9 +643,6 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-            # Clean up intermediate files
-            shutil.rmtree(transaction.intermediate_file_path)
-
         return transaction
 
     def consolidate_utxos(self, password=None) -> Transaction:
