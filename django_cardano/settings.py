@@ -13,8 +13,8 @@ DEFAULTS = {
     'INTERMEDIATE_FILE_PATH': os.environ.get('CARDANO_INTERMEDIATE_FILE_PATH'),
     'LOVELACE_UNIT': 'lovelace',
     'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
-    'NETWORK': os.environ.get('CARDANO_NETWORK', 'mainnet'),
-    'TESTNET_MAGIC': os.environ.get('CARDANO_TESTNET_MAGIC'),
+    'NETWORK': 'mainnet',
+    'TESTNET_MAGIC': 1097911063,
 }
 
 IMPORT_STRINGS = (

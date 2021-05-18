@@ -42,6 +42,7 @@ ENCRYPTION_BUFFER_SIZE = 4 * 1024
 
 lovelace_unit = cardano_settings.LOVELACE_UNIT
 
+
 # ------------------------------------------------------------------------------
 def file_upload_path(instance, filename):
     model_name = slugify(instance._meta.verbose_name)
@@ -49,7 +50,7 @@ def file_upload_path(instance, filename):
 
 
 class MintingPolicyManager(models.Manager):
-    def create(self, password, **kwargs):
+    def create(self, password, valid_before_slot, **kwargs):
         policy = self.model(**kwargs)
 
         cardano_cli = CardanoCLI()
@@ -83,8 +84,14 @@ class MintingPolicyManager(models.Manager):
 
         # 3. Construct the policy script and attach to the Policy record
         policy_script_data = json.dumps({
-            'keyHash': policy_key_hash,
-            'type': 'sig'
+            'type': 'all',
+            'scripts': [{
+                'keyHash': policy_key_hash,
+                'type': 'sig',
+            }, {
+                'type': 'before',
+                'slot': valid_before_slot,
+            }]
         })
         with ContentFile(policy_script_data) as file_content:
             policy.script.save('policy.script.json', file_content, save=False)
@@ -134,6 +141,30 @@ class AbstractMintingPolicy(models.Model):
         return Path(cardano_settings.INTERMEDIATE_FILE_PATH, 'policy', str(self.id))
 
 
+class MintingPolicy(AbstractMintingPolicy):
+    class Meta:
+        swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
+
+
+def get_minting_policy_model():
+    """
+    Return the MintingPolicy model that is active in this project.
+    """
+    try:
+        return django_apps.get_model(
+            settings.DJANGO_CARDANO_MINTING_POLICY_MODEL,
+            require_ready=True
+        )
+    except ValueError:
+        raise ImproperlyConfigured("DJANGO_CARDANO_MINTING_POLICY_MODEL must be of the form 'app_label.model_name'")
+    except LookupError:
+        raise ImproperlyConfigured(
+            "DJANGO_CARDANO_MINTING_POLICY_MODEL refers to model '%s' that has not been installed"
+            % settings.DJANGO_CARDANO_MINTING_POLICY_MODEL
+        )
+
+
+# ---------------------------------------------------------------------------------
 class TransactionTypes(models.IntegerChoices):
     LOVELACE_PAYMENT = 1
     TOKEN_PAYMENT = 2
@@ -157,6 +188,7 @@ class Transaction(models.Model):
         self.cli = CardanoCLI()
         self.cardano_utils = CardanoUtils()
         self.minting_policy = None
+        self.minting_password = None
 
     @property
     def intermediate_file_path(self) -> Path:
@@ -228,14 +260,14 @@ class Transaction(models.Model):
         match = MIN_FEE_RE.match(raw_response)
         return int(match[1])
 
-    def submit(self, wallet, fee, password, **tx_kwargs):
+    def submit(self, wallet, fee, password, invalid_hereafter=None, **tx_kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
         # Determine the TTL (time to Live) for the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#determine-the-ttl-time-to-live-for-the-transaction
-        tip = self.cardano_utils.query_tip()
-        current_slot = int(tip['slot'])
-        invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
+        if not invalid_hereafter:
+            current_slot = int(self.cardano_utils.query_tip()['slot'])
+            invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
         cmd_kwargs = {
             **tx_kwargs,
@@ -244,22 +276,12 @@ class Transaction(models.Model):
             'out-file': self.raw_tx_file_path,
         }
 
-        minting_policy = None
-        minting_password = None
-        if 'minting_policy' in cmd_kwargs:
-            minting_policy = cmd_kwargs['minting_policy']
-            del cmd_kwargs['minting_policy']
-        if 'minting_password' in cmd_kwargs:
-            minting_password = cmd_kwargs['minting_password']
-            del cmd_kwargs['minting_password']
-
         if 'metadata' in cmd_kwargs:
             cmd_kwargs.update({
                 'json-metadata-no-schema': None,
                 'metadata-json-file': self.metadata_file_path,
             })
             del cmd_kwargs['metadata']
-
 
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -284,13 +306,13 @@ class Transaction(models.Model):
         except ValueError as e:
             raise CardanoError(str(e))
 
-        if minting_policy:
-            signing_kwargs['script-file'] = minting_policy.script.path
+        if self.minting_policy:
+            signing_kwargs['script-file'] = self.minting_policy.script.path
 
             pyAesCrypt.decryptFile(
-                minting_policy.signing_key.path,
+                self.minting_policy.signing_key.path,
                 self.policy_signing_key_file_path,
-                minting_password,
+                self.minting_password,
                 ENCRYPTION_BUFFER_SIZE
             )
             signing_args.append(('signing-key-file', self.policy_signing_key_file_path))
@@ -308,6 +330,9 @@ class Transaction(models.Model):
             'tx-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
         })
+
+        # Clean up intermediate files
+        shutil.rmtree(self.intermediate_file_path)
 
 
 # ------------------------------------------------------------------------------
@@ -541,9 +566,6 @@ class AbstractWallet(models.Model):
             transaction.submit(wallet=self, fee=tx_fee, password=password)
             transaction.save()
 
-            # Clean up intermediate files
-            shutil.rmtree(transaction.intermediate_file_path)
-
         return transaction
 
     def send_tokens(self, asset_id, quantity, to_address, password=None) -> Transaction:
@@ -677,9 +699,6 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-            # Clean up intermediate files
-            shutil.rmtree(transaction.intermediate_file_path)
-
         return transaction
 
     def partition_lovelace(self, values: list, password=None) -> Transaction:
@@ -723,25 +742,21 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-            # Clean up intermediate files
-            shutil.rmtree(transaction.intermediate_file_path)
-
         return transaction
 
-    def mint_nft(self, policy, asset_name, metadata, to_address,
-                 spending_password, minting_password,
-                 payment_utxo=None, surplus_wallet=None) -> Transaction:
+    def mint_nft(self, asset_name, metadata, to_address, spending_password, minting_password,
+                 payment_utxo=None, change_address=None) -> (Transaction, AbstractMintingPolicy):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
-        :param policy: Minting policy to apply to the NFT
         :param asset_name: Name component of the unique asset ID (<policy_id>.<asset_name>)
         :param metadata: Metadata to include in the minting transaction
         :param to_address: Address to send minted token to
         :param spending_password: Password required to decrypt wallet signing key
         :param minting_password: Password required to decrypt policy signing key
-        :param source_utxo: Specific
+        :param payment_utxo: Specific
+        :param change_address: Address to receive excess funds
         """
-        surplus_address = surplus_wallet.payment_address if surplus_wallet else self.payment_address
+        surplus_address = change_address if change_address else self.payment_address
 
         if not payment_utxo:
             # If a payment utxo was not explicitly provided, we will use this wallet's largest
@@ -752,6 +767,16 @@ class AbstractWallet(models.Model):
                 # This will be used to pay for the transaction.
                 raise CardanoError(f'Inadequate funds to complete transaction')
             payment_utxo = lovelace_utxos[0]
+
+        # Generate a single-use policy to be used solely for this NFT
+        current_slot = int(self.cardano_utils.query_tip()['slot'])
+        invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
+
+        policy_class = get_minting_policy_model()
+        policy = policy_class.objects.create(
+            password=minting_password,
+            valid_before_slot=invalid_hereafter,
+        )
 
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
@@ -773,6 +798,7 @@ class AbstractWallet(models.Model):
             metadata=tx_metadata,
         )
         transaction.minting_policy = policy
+        transaction.minting_password = minting_password
 
         # HACK!! The amount of ADA accompanying a token needs to be computed
         # with respect to that token's properties
@@ -809,43 +835,15 @@ class AbstractWallet(models.Model):
                 wallet=self,
                 fee=tx_fee,
                 password=spending_password,
+                invalid_hereafter=invalid_hereafter,
                 mint=mint_argument,
                 metadata=transaction.metadata,
-                minting_policy=policy,
-                minting_password=minting_password,
             )
 
             # Let successful transactions be persisted to the database
             transaction.save()
 
-            # Clean up intermediate files
-            shutil.rmtree(transaction.intermediate_file_path)
-
-        return transaction
-
-
-# ---------------------------------------------------------------------------------
-class MintingPolicy(AbstractMintingPolicy):
-    class Meta:
-        swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
-
-
-def get_minting_policy_model():
-    """
-    Return the MintingPolicy model that is active in this project.
-    """
-    try:
-        return django_apps.get_model(
-            settings.DJANGO_CARDANO_MINTING_POLICY_MODEL,
-            require_ready=True
-        )
-    except ValueError:
-        raise ImproperlyConfigured("DJANGO_CARDANO_MINTING_POLICY_MODEL must be of the form 'app_label.model_name'")
-    except LookupError:
-        raise ImproperlyConfigured(
-            "DJANGO_CARDANO_MINTING_POLICY_MODEL refers to model '%s' that has not been installed"
-            % settings.DJANGO_CARDANO_MINTING_POLICY_MODEL
-        )
+        return transaction, policy
 
 
 # ---------------------------------------------------------------------------------
