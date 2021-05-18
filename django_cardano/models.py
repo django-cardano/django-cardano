@@ -230,14 +230,13 @@ class Transaction(models.Model):
             'fee': 0,
             'out-file': self.draft_tx_file_path,
         }
-        if 'metadata' in cmd_kwargs:
+        if self.metadata:
             with open(self.metadata_file_path, 'w') as metadata_file:
-                json.dump(cmd_kwargs['metadata'], metadata_file)
+                json.dump(self.metadata, metadata_file)
             cmd_kwargs.update({
                 'json-metadata-no-schema': None,
                 'metadata-json-file': self.metadata_file_path,
             })
-            del cmd_kwargs['metadata']
 
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -276,12 +275,11 @@ class Transaction(models.Model):
             'out-file': self.raw_tx_file_path,
         }
 
-        if 'metadata' in cmd_kwargs:
+        if self.metadata:
             cmd_kwargs.update({
                 'json-metadata-no-schema': None,
                 'metadata-json-file': self.metadata_file_path,
             })
-            del cmd_kwargs['metadata']
 
         self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -744,7 +742,8 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def mint_nft(self, asset_name, metadata, to_address, spending_password, minting_password,
+    def mint_nft(self, asset_name, metadata, to_address, spending_password,
+                 minting_password, minting_policy_kwargs=None,
                  payment_utxo=None, change_address=None) -> (Transaction, AbstractMintingPolicy):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
@@ -753,6 +752,7 @@ class AbstractWallet(models.Model):
         :param to_address: Address to send minted token to
         :param spending_password: Password required to decrypt wallet signing key
         :param minting_password: Password required to decrypt policy signing key
+        :param minting_policy_kwargs: Optional arguments to be passed to Policy creation
         :param payment_utxo: Specific
         :param change_address: Address to receive excess funds
         """
@@ -772,11 +772,14 @@ class AbstractWallet(models.Model):
         current_slot = int(self.cardano_utils.query_tip()['slot'])
         invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
+        minting_policy_create_args = {
+            'password': minting_password,
+            'valid_before_slot': invalid_hereafter,
+        }
+        if minting_policy_kwargs:
+            minting_policy_create_args.update(minting_policy_kwargs)
         policy_class = get_minting_policy_model()
-        policy = policy_class.objects.create(
-            password=minting_password,
-            valid_before_slot=invalid_hereafter,
-        )
+        policy = policy_class.objects.create(**minting_policy_create_args)
 
         # By specifying a quantity of one (1) we express our intent
         # to mint ONE AND ONLY ONE of this token...Ever.
@@ -816,12 +819,9 @@ class AbstractWallet(models.Model):
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
-        transaction.generate_draft(
-            mint=mint_argument,
-            metadata=transaction.metadata
-        )
+        transaction.generate_draft(mint=mint_argument)
 
-        if spending_password and minting_password:
+        if spending_password:
             # Calculate the fee
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
             tx_fee = transaction.calculate_min_fee()
@@ -837,7 +837,6 @@ class AbstractWallet(models.Model):
                 password=spending_password,
                 invalid_hereafter=invalid_hereafter,
                 mint=mint_argument,
-                metadata=transaction.metadata,
             )
 
             # Let successful transactions be persisted to the database
