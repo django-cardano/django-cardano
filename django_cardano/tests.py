@@ -3,16 +3,17 @@ import random
 import shutil
 from pathlib import Path
 
+from django.conf import settings
 from django.test import TestCase
 from django.utils.text import slugify
 
-from ..exceptions import CardanoError
-from ..models import (
+from .exceptions import CardanoError
+from .models import (
     get_wallet_model,
     MintingPolicy,
     Transaction,
 )
-from ..util import CardanoUtils
+from .util import CardanoUtils
 
 Wallet = get_wallet_model()
 
@@ -34,8 +35,8 @@ class DjangoCardanoTestCase(TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
 
-        cwd = Path(__file__).resolve().parent
-        cls.wallet = Wallet.objects.create_from_path(cwd / 'data')
+        test_data_path = settings.PROJECT_PATH / 'data' / 'test'
+        cls.wallet = Wallet.objects.create_from_path(test_data_path)
 
     @classmethod
     def tearDownClass(cls):
