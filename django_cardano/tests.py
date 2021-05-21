@@ -102,6 +102,12 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(draft_transaction._state.adding)
         self.assertTrue(draft_transaction.intermediate_file_path.exists)
 
+        intermediate_file_path = draft_transaction.intermediate_file_path
+        draft_transaction.delete()
+
+        # Ensure that the intermediate files were deleted
+        self.assertFalse(intermediate_file_path.exists())
+
         transaction = self.wallet.send_lovelace(
             lovelace_requested,
             to_address=to_address,

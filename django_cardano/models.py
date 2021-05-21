@@ -222,6 +222,12 @@ class Transaction(models.Model):
     def tx_args(self) -> list:
         return self.inputs + self.outputs
 
+    def delete(self, using=None, keep_parents=False):
+        # Destroy all intermediate files upon deletion
+        shutil.rmtree(self.intermediate_file_path)
+
+        return super().delete(using, keep_parents)
+
     def generate_draft(self, **kwargs):
         os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
 
