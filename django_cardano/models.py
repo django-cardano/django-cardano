@@ -378,7 +378,7 @@ class WalletManager(models.Manager):
         with open(path / 'staking.addr', 'r') as staking_address_file:
             wallet.stake_address = staking_address_file.read()
 
-        # Encrypt the generated key files and attach them to the wallet
+        # Encrypt the test key files and attach them to the wallet
         for field_name, file_path in {
             'payment_signing_key': path / 'signing.key.aes',
             'payment_verification_key': path / 'verification.key.aes',
@@ -393,65 +393,6 @@ class WalletManager(models.Manager):
         wallet.full_clean()
         wallet.save(force_insert=True, using=self.db)
 
-        return wallet
-
-    def create(self, password, **kwargs):
-        wallet = self.model(**kwargs)
-
-        cardano_cli = CardanoCLI()
-
-        intermediate_file_path = Path(create_intermediate_directory('wallet', str(wallet.id)))
-        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
-
-        # Generate the payment signing & verification keys
-        signing_key_path = intermediate_file_path / 'signing.key'
-        verification_key_path = intermediate_file_path / 'verification.key'
-        cardano_cli.run('address key-gen', **{
-            'signing-key-file': signing_key_path,
-            'verification-key-file': verification_key_path,
-        })
-
-        # Generate the stake signing & verification keys
-        stake_signing_key_path = intermediate_file_path / 'stake-signing.key'
-        stake_verification_key_path = intermediate_file_path / 'stake-verification.key'
-        cardano_cli.run('stake-address key-gen', **{
-            'signing-key-file': stake_signing_key_path,
-            'verification-key-file': stake_verification_key_path,
-        })
-
-        # Create the payment address.
-        wallet.payment_address = cardano_cli.run('address build', **{
-            'payment-verification-key-file': verification_key_path,
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': cardano_settings.NETWORK,
-        })
-
-        # Create the staking address.
-        wallet.stake_address = cardano_cli.run('stake-address build', **{
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': cardano_settings.NETWORK,
-        })
-
-        # Encrypt the generated key files and attach them to the wallet
-        for field_name, file_path in {
-            'payment_signing_key': signing_key_path,
-            'payment_verification_key': verification_key_path,
-            'stake_signing_key': stake_signing_key_path,
-            'stake_verification_key': stake_verification_key_path,
-        }.items():
-            with open(file_path, 'rb') as fp:
-                filename = file_path.name
-                fCiph = io.BytesIO()
-                pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
-                file_field = getattr(wallet, field_name)
-                file_field.save(f'{filename}.aes', fCiph, save=False)
-
-        # Now that the keys have all been encrypted and stored, it is imperative
-        # the raw files be discarded (successfully) before the wallet is finalized.
-        shutil.rmtree(intermediate_file_path)
-
-        wallet.full_clean()
-        wallet.save(force_insert=True, using=self.db)
         return wallet
 
 
@@ -495,7 +436,7 @@ class AbstractWallet(models.Model):
         self.cardano_utils = CardanoUtils()
 
     def __str__(self):
-        return self.payment_address
+        return self.name
 
     @property
     def utxos(self) -> list:
@@ -538,6 +479,62 @@ class AbstractWallet(models.Model):
                 all_tokens[token_id] += token_count
 
         return all_tokens, utxos
+
+    def generate_keys(self, password):
+        cardano_cli = CardanoCLI()
+
+        intermediate_file_path = Path(create_intermediate_directory('wallet', str(self.id)))
+        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
+
+        # Generate the payment signing & verification keys
+        signing_key_path = intermediate_file_path / 'signing.key'
+        verification_key_path = intermediate_file_path / 'verification.key'
+        cardano_cli.run('address key-gen', **{
+            'signing-key-file': signing_key_path,
+            'verification-key-file': verification_key_path,
+        })
+
+        # Generate the stake signing & verification keys
+        stake_signing_key_path = intermediate_file_path / 'stake-signing.key'
+        stake_verification_key_path = intermediate_file_path / 'stake-verification.key'
+        cardano_cli.run('stake-address key-gen', **{
+            'signing-key-file': stake_signing_key_path,
+            'verification-key-file': stake_verification_key_path,
+        })
+
+        # Create the payment address.
+        self.payment_address = cardano_cli.run('address build', **{
+            'payment-verification-key-file': verification_key_path,
+            'stake-verification-key-file': stake_verification_key_path,
+            'network': cardano_settings.NETWORK,
+        })
+
+        # Create the staking address.
+        self.stake_address = cardano_cli.run('stake-address build', **{
+            'stake-verification-key-file': stake_verification_key_path,
+            'network': cardano_settings.NETWORK,
+        })
+
+        # Encrypt the generated key files and attach them to the wallet
+        for field_name, file_path in {
+            'payment_signing_key': signing_key_path,
+            'payment_verification_key': verification_key_path,
+            'stake_signing_key': stake_signing_key_path,
+            'stake_verification_key': stake_verification_key_path,
+        }.items():
+            with open(file_path, 'rb') as fp:
+                filename = file_path.name
+                fCiph = io.BytesIO()
+                pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                file_field = getattr(self, field_name)
+                file_field.save(f'{filename}.aes', fCiph, save=False)
+
+        # Now that the keys have all been encrypted and stored, it is imperative
+        # the raw files be discarded (successfully) before the wallet is finalized.
+        shutil.rmtree(intermediate_file_path)
+
+        self.full_clean()
+        self.save()
 
     def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
         from_address = self.payment_address
