@@ -77,3 +77,7 @@ DJANGO_CARDANO = {
     'NETWORK': 'testnet',
     'TOKEN_DUST': 1650000,
 }
+
+DJANGO_CARDANO_MINTING_POLICY_MODEL = 'django_cardano.MintingPolicy'
+DJANGO_CARDANO_TRANSACTION_MODEL = 'django_cardano.Transaction'
+DJANGO_CARDANO_WALLET_MODEL = 'django_cardano.Wallet'

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from django.db import models
 from django.apps import apps as django_apps
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
@@ -142,7 +143,7 @@ class AbstractMintingPolicy(models.Model):
 
 class MintingPolicy(AbstractMintingPolicy):
     class Meta:
-        swappable = 'MINTING_POLICY_MODEL'
+        swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
 
 
 # ---------------------------------------------------------------------------------
@@ -328,7 +329,7 @@ class AbstractTransaction(models.Model):
 
 class Transaction(AbstractTransaction):
     class Meta:
-        swappable = 'TRANSACTION_MODEL'
+        swappable = 'DJANGO_CARDANO_TRANSACTION_MODEL'
 
 
 # ------------------------------------------------------------------------------
@@ -847,7 +848,7 @@ class Wallet(AbstractWallet):
 
 # ---------------------------------------------------------------------------------
 def get_extensible_model(setting_name):
-    model_name = getattr(cardano_settings, setting_name)
+    model_name = getattr(settings, setting_name)
     try:
         return django_apps.get_model(model_name, require_ready=True)
     except ValueError:
@@ -862,18 +863,18 @@ def get_minting_policy_model():
     """
     Return the MintingPolicy model that is active in this project.
     """
-    return get_extensible_model('MINTING_POLICY_MODEL')
+    return get_extensible_model('DJANGO_CARDANO_MINTING_POLICY_MODEL')
 
 
 def get_transaction_model():
     """
     Return the MintingPolicy model that is active in this project.
     """
-    return get_extensible_model('TRANSACTION_MODEL')
+    return get_extensible_model('DJANGO_CARDANO_TRANSACTION_MODEL')
 
 
 def get_wallet_model():
     """
     Return the Wallet model that is active in this project.
     """
-    return get_extensible_model('WALLET_MODEL')
+    return get_extensible_model('DJANGO_CARDANO_WALLET_MODEL')

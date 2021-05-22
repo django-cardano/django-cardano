@@ -15,10 +15,6 @@ DEFAULTS = {
     'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
     'NETWORK': 'mainnet',
     'TESTNET_MAGIC': 1097911063,
-
-    'MINTING_POLICY_MODEL': 'django_cardano.MintingPolicy',
-    'TRANSACTION_MODEL': 'django_cardano.Transaction',
-    'WALLET_MODEL': 'django_cardano.Wallet',
 }
 
 IMPORT_STRINGS = (
