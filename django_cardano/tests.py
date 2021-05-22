@@ -147,15 +147,23 @@ class DjangoCardanoTestCase(TestCase):
         shutil.rmtree(data_path_for_model(minting_policy))
 
     def test_mint_nft(self):
-        metadata = {
-            'name': 'django-cardano Test NFT',
-            'description': 'The Cardano Logo (in SVG format)',
-            'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
-        }
+        def construct_nft_metadata(policy, asset_name):
+            return {
+                "721": {
+                    policy.policy_id: {
+                        asset_name: {
+                            'name': 'django-cardano Test NFT',
+                            'description': 'The Cardano Logo (in SVG format)',
+                            'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
+
+                        }
+                    }
+                }
+            }
 
         transaction = self.wallet.mint_nft(
             asset_name="Test NFT",
-            metadata=metadata,
+            metadata=construct_nft_metadata,
             to_address=self.wallet.payment_address,
             spending_password=DEFAULT_SPENDING_PASSWORD,
             minting_password=DEFAULT_MINTING_PASSWORD,

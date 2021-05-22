@@ -823,13 +823,9 @@ class AbstractWallet(models.Model):
 
         # Structure the token metadata according to the proposed "721" standard
         # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
-        tx_metadata = {
-            "721": {
-                policy.policy_id: {
-                    cleaned_asset_name: metadata
-                }
-            }
-        }
+        tx_metadata = metadata
+        if callable(tx_metadata):
+            tx_metadata = tx_metadata(policy, cleaned_asset_name)
 
         transaction_model_class = get_transaction_model()
         transaction = transaction_model_class(
