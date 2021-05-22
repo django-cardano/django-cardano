@@ -43,6 +43,40 @@ ENCRYPTION_BUFFER_SIZE = 4 * 1024
 lovelace_unit = cardano_settings.LOVELACE_UNIT
 
 
+# ---------------------------------------------------------------------------------
+def get_extensible_model(setting_name):
+    model_name = getattr(settings, setting_name)
+    try:
+        return django_apps.get_model(model_name, require_ready=True)
+    except ValueError:
+        raise ImproperlyConfigured(f"{setting_name} must be of the form 'app_label.model_name'")
+    except LookupError:
+        raise ImproperlyConfigured(
+            f"{setting_name} refers to model '{model_name}' that has not been installed"
+        )
+
+
+def get_minting_policy_model():
+    """
+    Return the MintingPolicy model that is active in this project.
+    """
+    return get_extensible_model('DJANGO_CARDANO_MINTING_POLICY_MODEL')
+
+
+def get_transaction_model():
+    """
+    Return the Transaction model that is active in this project.
+    """
+    return get_extensible_model('DJANGO_CARDANO_TRANSACTION_MODEL')
+
+
+def get_wallet_model():
+    """
+    Return the Wallet model that is active in this project.
+    """
+    return get_extensible_model('DJANGO_CARDANO_WALLET_MODEL')
+
+
 # ------------------------------------------------------------------------------
 def file_upload_path(instance, filename):
     model_name = slugify(instance._meta.verbose_name)
@@ -505,7 +539,7 @@ class AbstractWallet(models.Model):
 
         return all_tokens, utxos
 
-    def send_lovelace(self, quantity, to_address, password=None) -> Transaction:
+    def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
         from_address = self.payment_address
 
         # The protocol's declared txFeeFixed will give us a fair estimate
@@ -513,7 +547,8 @@ class AbstractWallet(models.Model):
         protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
-        transaction = Transaction(type=TransactionTypes.LOVELACE_PAYMENT)
+        transaction_class = get_transaction_model()
+        transaction = transaction_class(type=TransactionTypes.LOVELACE_PAYMENT)
 
         # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
@@ -565,7 +600,7 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def send_tokens(self, asset_id, quantity, to_address, password=None) -> Transaction:
+    def send_tokens(self, asset_id, quantity, to_address, password=None) -> AbstractTransaction:
         payment_address = self.payment_address
 
         utxos = self.utxos
@@ -577,7 +612,8 @@ class AbstractWallet(models.Model):
             # This will be used to pay for the transaction.
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
-        transaction = Transaction(type=TransactionTypes.TOKEN_PAYMENT)
+        transaction_model_class = get_transaction_model()
+        transaction = transaction_model_class(type=TransactionTypes.TOKEN_PAYMENT)
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
         # to pay for the transaction (including fees)
@@ -644,11 +680,12 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def consolidate_utxos(self, password=None) -> Transaction:
+    def consolidate_utxos(self, password=None) -> AbstractTransaction:
         payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
-        transaction = Transaction(type=TransactionTypes.TOKEN_CONSOLIDATION)
+        transaction_model_class = get_transaction_model()
+        transaction = transaction_model_class(type=TransactionTypes.TOKEN_CONSOLIDATION)
 
         # Traverse the set of utxos at the given wallet's payment address,
         # accumulating the total count of each type of token.
@@ -695,7 +732,7 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def partition_lovelace(self, values: list, password=None) -> Transaction:
+    def partition_lovelace(self, values: list, password=None) -> AbstractTransaction:
         """
         Convert existing lovelace UTxOs into those of the given values.
         (Useful for testing batch creation of NFTs.)
@@ -703,7 +740,8 @@ class AbstractWallet(models.Model):
         :param values:
         :return:
         """
-        transaction = Transaction(type=TransactionTypes.LOVELACE_PARTITION)
+        transaction_model_class = get_transaction_model()
+        transaction = transaction_model_class(type=TransactionTypes.LOVELACE_PARTITION)
 
         surplus_lovelace = 0
         lovelace_utxos = filter_utxos(self.utxos, type=lovelace_unit)
@@ -740,7 +778,7 @@ class AbstractWallet(models.Model):
 
     def mint_nft(self, asset_name, metadata, to_address, spending_password,
                  minting_password, minting_policy_kwargs=None,
-                 payment_utxo=None, change_address=None) -> (Transaction, AbstractMintingPolicy):
+                 payment_utxo=None, change_address=None) -> (AbstractTransaction, AbstractMintingPolicy):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param asset_name: Name component of the unique asset ID (<policy_id>.<asset_name>)
@@ -792,7 +830,9 @@ class AbstractWallet(models.Model):
                 }
             }
         }
-        transaction = Transaction(
+
+        transaction_model_class = get_transaction_model()
+        transaction = transaction_model_class(
             type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata,
         )
@@ -844,37 +884,3 @@ class AbstractWallet(models.Model):
 class Wallet(AbstractWallet):
     class Meta(AbstractWallet.Meta):
         swappable = 'DJANGO_CARDANO_WALLET_MODEL'
-
-
-# ---------------------------------------------------------------------------------
-def get_extensible_model(setting_name):
-    model_name = getattr(settings, setting_name)
-    try:
-        return django_apps.get_model(model_name, require_ready=True)
-    except ValueError:
-        raise ImproperlyConfigured(f"{setting_name} must be of the form 'app_label.model_name'")
-    except LookupError:
-        raise ImproperlyConfigured(
-            f"{setting_name} refers to model '{model_name}' that has not been installed"
-        )
-
-
-def get_minting_policy_model():
-    """
-    Return the MintingPolicy model that is active in this project.
-    """
-    return get_extensible_model('DJANGO_CARDANO_MINTING_POLICY_MODEL')
-
-
-def get_transaction_model():
-    """
-    Return the MintingPolicy model that is active in this project.
-    """
-    return get_extensible_model('DJANGO_CARDANO_TRANSACTION_MODEL')
-
-
-def get_wallet_model():
-    """
-    Return the Wallet model that is active in this project.
-    """
-    return get_extensible_model('DJANGO_CARDANO_WALLET_MODEL')
