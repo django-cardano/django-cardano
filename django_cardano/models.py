@@ -10,7 +10,6 @@ from pathlib import Path
 
 from django.db import models
 from django.apps import apps as django_apps
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
@@ -143,25 +142,7 @@ class AbstractMintingPolicy(models.Model):
 
 class MintingPolicy(AbstractMintingPolicy):
     class Meta:
-        swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
-
-
-def get_minting_policy_model():
-    """
-    Return the MintingPolicy model that is active in this project.
-    """
-    try:
-        return django_apps.get_model(
-            settings.DJANGO_CARDANO_MINTING_POLICY_MODEL,
-            require_ready=True
-        )
-    except ValueError:
-        raise ImproperlyConfigured("DJANGO_CARDANO_MINTING_POLICY_MODEL must be of the form 'app_label.model_name'")
-    except LookupError:
-        raise ImproperlyConfigured(
-            "DJANGO_CARDANO_MINTING_POLICY_MODEL refers to model '%s' that has not been installed"
-            % settings.DJANGO_CARDANO_MINTING_POLICY_MODEL
-        )
+        swappable = 'MINTING_POLICY_MODEL'
 
 
 # ---------------------------------------------------------------------------------
@@ -173,7 +154,7 @@ class TransactionTypes(models.IntegerChoices):
     LOVELACE_PARTITION = 5
 
 
-class Transaction(models.Model):
+class AbstractTransaction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tx_id = models.CharField(max_length=64, blank=True, null=True)
 
@@ -182,6 +163,9 @@ class Transaction(models.Model):
     metadata = models.JSONField(blank=True, null=True)
     type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
+    class Meta:
+        abstract = True
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -189,6 +173,9 @@ class Transaction(models.Model):
         self.cardano_utils = CardanoUtils()
         self.minting_policy = None
         self.minting_password = None
+
+    def __str__(self):
+        return str(self.id)
 
     @property
     def intermediate_file_path(self) -> Path:
@@ -337,6 +324,11 @@ class Transaction(models.Model):
 
         # Clean up intermediate files
         shutil.rmtree(self.intermediate_file_path)
+
+
+class Transaction(AbstractTransaction):
+    class Meta:
+        swappable = 'TRANSACTION_MODEL'
 
 
 # ------------------------------------------------------------------------------
@@ -848,26 +840,40 @@ class AbstractWallet(models.Model):
         return transaction, policy
 
 
-# ---------------------------------------------------------------------------------
 class Wallet(AbstractWallet):
     class Meta(AbstractWallet.Meta):
         swappable = 'DJANGO_CARDANO_WALLET_MODEL'
+
+
+# ---------------------------------------------------------------------------------
+def get_extensible_model(setting_name):
+    model_name = getattr(cardano_settings, setting_name)
+    try:
+        return django_apps.get_model(model_name, require_ready=True)
+    except ValueError:
+        raise ImproperlyConfigured(f"{setting_name} must be of the form 'app_label.model_name'")
+    except LookupError:
+        raise ImproperlyConfigured(
+            f"{setting_name} refers to model '{model_name}' that has not been installed"
+        )
+
+
+def get_minting_policy_model():
+    """
+    Return the MintingPolicy model that is active in this project.
+    """
+    return get_extensible_model('MINTING_POLICY_MODEL')
+
+
+def get_transaction_model():
+    """
+    Return the MintingPolicy model that is active in this project.
+    """
+    return get_extensible_model('TRANSACTION_MODEL')
 
 
 def get_wallet_model():
     """
     Return the Wallet model that is active in this project.
     """
-    try:
-        return django_apps.get_model(
-            settings.DJANGO_CARDANO_WALLET_MODEL,
-            require_ready=True
-        )
-    except ValueError:
-        raise ImproperlyConfigured("DJANGO_CARDANO_WALLET_MODEL must be of the form 'app_label.model_name'")
-    except LookupError:
-        raise ImproperlyConfigured(
-            "DJANGO_CARDANO_WALLET_MODEL refers to model '%s' that has not been installed"
-                % settings.DJANGO_CARDANO_WALLET_MODEL
-        )
-
+    return get_extensible_model('WALLET_MODEL')

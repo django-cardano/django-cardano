@@ -9,12 +9,14 @@ from django.utils.text import slugify
 
 from .exceptions import CardanoError
 from .models import (
+    get_minting_policy_model,
+    get_transaction_model,
     get_wallet_model,
-    MintingPolicy,
-    Transaction,
 )
 from .util import CardanoUtils
 
+MintingPolicy = get_minting_policy_model()
+Transaction = get_transaction_model()
 Wallet = get_wallet_model()
 
 DEFAULT_SPENDING_PASSWORD = 'fL;$qR9FZ3?stf-M'

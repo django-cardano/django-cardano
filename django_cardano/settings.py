@@ -15,6 +15,10 @@ DEFAULTS = {
     'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
     'NETWORK': 'mainnet',
     'TESTNET_MAGIC': 1097911063,
+
+    'MINTING_POLICY_MODEL': 'django_cardano.MintingPolicy',
+    'TRANSACTION_MODEL': 'django_cardano.Transaction',
+    'WALLET_MODEL': 'django_cardano.Wallet',
 }
 
 IMPORT_STRINGS = (
@@ -64,7 +68,7 @@ class DjangoCardanoSettings:
 
     Note:
     This is an internal class that is only compatible with settings namespaced
-    under the REST_FRAMEWORK name. It is not intended to be used by 3rd-party
+    under the DJANGO_CARDANO name. It is not intended to be used by 3rd-party
     apps, and test helpers like `override_settings` may not work as expected.
     """
     def __init__(self, user_settings=None, defaults=None, import_strings=None):
@@ -118,6 +122,7 @@ class DjangoCardanoSettings:
 django_cardano_settings = DjangoCardanoSettings(USER_SETTINGS, DEFAULTS, IMPORT_STRINGS)
 
 
+# -----------------------------------------------------------------------------
 def reload_settings(*args, **kwargs):  # pragma: no cover
     global django_cardano_settings
 
@@ -125,6 +130,5 @@ def reload_settings(*args, **kwargs):  # pragma: no cover
 
     if setting == 'DJANGO_CARDANO':
         django_cardano_settings = DjangoCardanoSettings(value, DEFAULTS, IMPORT_STRINGS)
-
 
 setting_changed.connect(reload_settings)

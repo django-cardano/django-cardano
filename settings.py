@@ -6,13 +6,12 @@ PROJECT_PATH = Path(__file__).resolve().parent
 
 load_dotenv(PROJECT_PATH / '.env')
 
-DEBUG = int(os.environ.get("DEBUG", default=0))
+DEBUG = False
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
 # 'DJANGO_ALLOWED_HOSTS' should be a single string of hosts with a space between each.
 # For example: 'DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1 [::1]'
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS").split(" ")
-
+ALLOWED_HOSTS = ['localhost']
 
 
 INSTALLED_APPS = [
@@ -78,6 +77,3 @@ DJANGO_CARDANO = {
     'NETWORK': 'testnet',
     'TOKEN_DUST': 1650000,
 }
-
-DJANGO_CARDANO_WALLET_MODEL = 'django_cardano.Wallet'
-DJANGO_CARDANO_MINTING_POLICY_MODEL = 'django_cardano.MintingPolicy'
