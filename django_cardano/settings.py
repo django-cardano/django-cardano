@@ -7,14 +7,14 @@ from django.utils.module_loading import import_string
 USER_SETTINGS = getattr(settings, 'DJANGO_CARDANO', None)
 
 DEFAULTS = {
+    'APP_DATA_PATH': os.environ.get('CARDANO_APP_DATA_PATH'),
     'CLI_PATH': os.environ.get('CARDANO_CLI_PATH'),
-    'TOKEN_DUST': 2000000,
     'DEFAULT_TRANSACTION_TTL': 1000,
-    'INTERMEDIATE_FILE_PATH': os.environ.get('CARDANO_INTERMEDIATE_FILE_PATH'),
     'LOVELACE_UNIT': 'lovelace',
-    'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
     'NETWORK': 'mainnet',
+    'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
     'TESTNET_MAGIC': 1097911063,
+    'TOKEN_DUST': 2000000,
 }
 
 IMPORT_STRINGS = (
@@ -126,5 +126,6 @@ def reload_settings(*args, **kwargs):  # pragma: no cover
 
     if setting == 'DJANGO_CARDANO':
         django_cardano_settings = DjangoCardanoSettings(value, DEFAULTS, IMPORT_STRINGS)
+
 
 setting_changed.connect(reload_settings)

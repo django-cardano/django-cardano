@@ -3,6 +3,7 @@ import json
 import os
 import pyAesCrypt
 import shutil
+import tempfile
 import uuid
 
 from collections import defaultdict
@@ -205,7 +206,6 @@ class AbstractTransaction(models.Model):
         super().__init__(*args, **kwargs)
 
         self.cli = CardanoCLI()
-        self.cardano_utils = CardanoUtils()
         self.minting_policy = None
         self.minting_password = None
 
@@ -273,7 +273,7 @@ class AbstractTransaction(models.Model):
         if not tx_body_file_path.exists():
             raise CardanoError('Unable to calculate minimum fee; require transaction body file.')
 
-        self.cardano_utils.refresh_protocol_parameters()
+        CardanoUtils.refresh_protocol_parameters()
 
         raw_response = self.cli.run('transaction calculate-min-fee', **{
             'tx-body-file': self.draft_tx_file_path,
@@ -281,7 +281,7 @@ class AbstractTransaction(models.Model):
             'tx-out-count': len(self.outputs),
             'witness-count': 2 if self.minting_policy else 1,
             'byron-witness-count': 0,
-            'protocol-params-file': self.cardano_utils.protocol_parameters_path,
+            'protocol-params-file': CardanoUtils.protocol_parameters_path,
             'network': cardano_settings.NETWORK,
         })
         match = MIN_FEE_RE.match(raw_response)
@@ -293,7 +293,7 @@ class AbstractTransaction(models.Model):
         # Determine the TTL (time to Live) for the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#determine-the-ttl-time-to-live-for-the-transaction
         if not invalid_hereafter:
-            current_slot = int(self.cardano_utils.query_tip()['slot'])
+            current_slot = int(CardanoUtils.query_tip()['slot'])
             invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
         cmd_kwargs = {
@@ -433,7 +433,6 @@ class AbstractWallet(models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cli = CardanoCLI()
-        self.cardano_utils = CardanoUtils()
 
     def __str__(self):
         return self.name
@@ -483,65 +482,61 @@ class AbstractWallet(models.Model):
     def generate_keys(self, password):
         cardano_cli = CardanoCLI()
 
-        intermediate_file_path = Path(create_intermediate_directory('wallet', str(self.id)))
-        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            intermediate_file_path = Path(tmpdirname)
 
-        # Generate the payment signing & verification keys
-        signing_key_path = intermediate_file_path / 'signing.key'
-        verification_key_path = intermediate_file_path / 'verification.key'
-        cardano_cli.run('address key-gen', **{
-            'signing-key-file': signing_key_path,
-            'verification-key-file': verification_key_path,
-        })
+            # Generate the payment signing & verification keys
+            signing_key_path = intermediate_file_path / 'signing.key'
+            verification_key_path = intermediate_file_path / 'verification.key'
+            cardano_cli.run('address key-gen', **{
+                'signing-key-file': signing_key_path,
+                'verification-key-file': verification_key_path,
+            })
 
-        # Generate the stake signing & verification keys
-        stake_signing_key_path = intermediate_file_path / 'stake-signing.key'
-        stake_verification_key_path = intermediate_file_path / 'stake-verification.key'
-        cardano_cli.run('stake-address key-gen', **{
-            'signing-key-file': stake_signing_key_path,
-            'verification-key-file': stake_verification_key_path,
-        })
+            # Generate the stake signing & verification keys
+            stake_signing_key_path = intermediate_file_path / 'stake-signing.key'
+            stake_verification_key_path = intermediate_file_path / 'stake-verification.key'
+            cardano_cli.run('stake-address key-gen', **{
+                'signing-key-file': stake_signing_key_path,
+                'verification-key-file': stake_verification_key_path,
+            })
 
-        # Create the payment address.
-        self.payment_address = cardano_cli.run('address build', **{
-            'payment-verification-key-file': verification_key_path,
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': cardano_settings.NETWORK,
-        })
+            # Create the payment address.
+            self.payment_address = cardano_cli.run('address build', **{
+                'payment-verification-key-file': verification_key_path,
+                'stake-verification-key-file': stake_verification_key_path,
+                'network': cardano_settings.NETWORK,
+            })
 
-        # Create the staking address.
-        self.stake_address = cardano_cli.run('stake-address build', **{
-            'stake-verification-key-file': stake_verification_key_path,
-            'network': cardano_settings.NETWORK,
-        })
+            # Create the staking address.
+            self.stake_address = cardano_cli.run('stake-address build', **{
+                'stake-verification-key-file': stake_verification_key_path,
+                'network': cardano_settings.NETWORK,
+            })
 
-        # Encrypt the generated key files and attach them to the wallet
-        for field_name, file_path in {
-            'payment_signing_key': signing_key_path,
-            'payment_verification_key': verification_key_path,
-            'stake_signing_key': stake_signing_key_path,
-            'stake_verification_key': stake_verification_key_path,
-        }.items():
-            with open(file_path, 'rb') as fp:
-                filename = file_path.name
-                fCiph = io.BytesIO()
-                pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
-                file_field = getattr(self, field_name)
-                file_field.save(f'{filename}.aes', fCiph, save=False)
+            # Encrypt the generated key files and attach them to the wallet
+            for field_name, file_path in {
+                'payment_signing_key': signing_key_path,
+                'payment_verification_key': verification_key_path,
+                'stake_signing_key': stake_signing_key_path,
+                'stake_verification_key': stake_verification_key_path,
+            }.items():
+                with open(file_path, 'rb') as fp:
+                    filename = file_path.name
+                    fCiph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    file_field = getattr(self, field_name)
+                    file_field.save(f'{filename}.aes', fCiph, save=False)
 
-        # Now that the keys have all been encrypted and stored, it is imperative
-        # the raw files be discarded (successfully) before the wallet is finalized.
-        shutil.rmtree(intermediate_file_path)
-
-        self.full_clean()
-        self.save()
+            self.full_clean()
+            self.save()
 
     def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
         from_address = self.payment_address
 
         # The protocol's declared txFeeFixed will give us a fair estimate
         # of how much the fee for this transaction will be.
-        protocol_parameters = self.cardano_utils.refresh_protocol_parameters()
+        protocol_parameters = CardanoUtils.refresh_protocol_parameters()
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
         transaction_class = get_transaction_model()
@@ -800,7 +795,7 @@ class AbstractWallet(models.Model):
             payment_utxo = lovelace_utxos[0]
 
         # Generate a single-use policy to be used solely for this NFT
-        current_slot = int(self.cardano_utils.query_tip()['slot'])
+        current_slot = int(CardanoUtils.query_tip()['slot'])
         invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
         minting_policy_create_args = {

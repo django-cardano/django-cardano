@@ -18,10 +18,8 @@ class CardanoAddressValidator:
             self.code = code
 
     def __call__(self, value):
-        cardano_utils = CardanoUtils()
-
         try:
-            cardano_utils.address_info(value)
+            CardanoUtils.address_info(value)
         except CardanoError:
             raise ValidationError(self.message, code=self.code)
 
