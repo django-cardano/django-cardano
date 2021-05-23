@@ -28,7 +28,6 @@ from .util import CardanoUtils
 
 from .shortcuts import (
     clean_token_asset_name,
-    create_intermediate_directory,
     filter_utxos,
     sort_utxos,
 )
@@ -90,54 +89,51 @@ class MintingPolicyManager(models.Manager):
 
         cardano_cli = CardanoCLI()
 
-        intermediate_file_path = Path(policy.intermediate_file_path)
-        os.makedirs(intermediate_file_path, 0o755, exist_ok=True)
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            intermediate_file_path = Path(tmpdirname)
 
-        # 1. Create signing/verification keys for the minting policy
-        signing_key_path = intermediate_file_path / 'signing.key'
-        verification_key_path = intermediate_file_path / 'verification.key'
-        cardano_cli.run('address key-gen', **{
-            'signing-key-file': signing_key_path,
-            'verification-key-file': verification_key_path,
-        })
+            # 1. Create signing/verification keys for the minting policy
+            signing_key_path = intermediate_file_path / 'signing.key'
+            verification_key_path = intermediate_file_path / 'verification.key'
+            cardano_cli.run('address key-gen', **{
+                'signing-key-file': signing_key_path,
+                'verification-key-file': verification_key_path,
+            })
 
-        # 2. Encrypt the generated key files and attach them to the Policy record
-        for field_name, file_path in {
-            'signing_key': signing_key_path,
-            'verification_key': verification_key_path,
-        }.items():
-            with open(file_path, 'rb') as fp:
-                filename = file_path.name
-                fCiph = io.BytesIO()
-                pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
-                file_field = getattr(policy, field_name)
-                file_field.save(f'{filename}.aes', fCiph, save=False)
+            # 2. Encrypt the generated key files and attach them to the Policy record
+            for field_name, file_path in {
+                'signing_key': signing_key_path,
+                'verification_key': verification_key_path,
+            }.items():
+                with open(file_path, 'rb') as fp:
+                    filename = file_path.name
+                    fCiph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    file_field = getattr(policy, field_name)
+                    file_field.save(f'{filename}.aes', fCiph, save=False)
 
-        policy_key_hash = cardano_cli.run('address key-hash', **{
-            'payment-verification-key-file': verification_key_path,
-        })
+            policy_key_hash = cardano_cli.run('address key-hash', **{
+                'payment-verification-key-file': verification_key_path,
+            })
 
-        # 3. Construct the policy script and attach to the Policy record
-        policy_script_data = json.dumps({
-            'type': 'all',
-            'scripts': [{
-                'keyHash': policy_key_hash,
-                'type': 'sig',
-            }, {
-                'type': 'before',
-                'slot': valid_before_slot,
-            }]
-        })
-        with ContentFile(policy_script_data) as file_content:
-            policy.script.save('policy.script.json', file_content, save=False)
+            # 3. Construct the policy script and attach to the Policy record
+            policy_script_data = json.dumps({
+                'type': 'all',
+                'scripts': [{
+                    'keyHash': policy_key_hash,
+                    'type': 'sig',
+                }, {
+                    'type': 'before',
+                    'slot': valid_before_slot,
+                }]
+            })
+            with ContentFile(policy_script_data) as file_content:
+                policy.script.save('policy.script.json', file_content, save=False)
 
-        # 4. Determine the policy ID (i.e. compute hash of the policy script)
-        policy.policy_id = cardano_cli.run('transaction policyid', **{
-            'script-file': policy.script.path
-        })
-
-        # 4. Discard all intermediate files used in the creation of the policy
-        shutil.rmtree(intermediate_file_path)
+            # 4. Determine the policy ID (i.e. compute hash of the policy script)
+            policy.policy_id = cardano_cli.run('transaction policyid', **{
+                'script-file': policy.script.path
+            })
 
         policy.save(force_insert=True, using=self.db)
         return policy
@@ -170,10 +166,6 @@ class AbstractMintingPolicy(models.Model):
 
     def __str__(self):
         return self.policy_id
-
-    @property
-    def intermediate_file_path(self) -> Path:
-        return Path(cardano_settings.INTERMEDIATE_FILE_PATH, 'policy', str(self.id))
 
 
 class MintingPolicy(AbstractMintingPolicy):

@@ -137,7 +137,13 @@ class DjangoCardanoTestCase(TestCase):
         print(transaction.tx_id)
 
     def test_create_minting_policy(self):
-        minting_policy = MintingPolicy.objects.create(password=DEFAULT_SPENDING_PASSWORD)
+        tip = CardanoUtils.query_tip()
+        valid_before_slot = tip['slot'] + django_cardano_settings.DEFAULT_TRANSACTION_TTL
+
+        minting_policy = MintingPolicy.objects.create(
+            password=DEFAULT_SPENDING_PASSWORD,
+            valid_before_slot=valid_before_slot,
+        )
         policy_script_path = Path(minting_policy.script.path)
         self.assertTrue(policy_script_path.exists())
 
