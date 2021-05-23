@@ -198,15 +198,19 @@ class AbstractTransaction(models.Model):
         super().__init__(*args, **kwargs)
 
         self.cli = CardanoCLI()
+        self.temp_directory = tempfile.TemporaryDirectory()
         self.minting_policy = None
         self.minting_password = None
+
+    def __del__(self):
+        self.temp_directory.cleanup()
 
     def __str__(self):
         return str(self.id)
 
     @property
     def intermediate_file_path(self) -> Path:
-        return Path(cardano_settings.INTERMEDIATE_FILE_PATH, 'tx', str(self.id))
+        return Path(self.temp_directory.name)
 
     @property
     def metadata_file_path(self) -> Path:
@@ -238,13 +242,11 @@ class AbstractTransaction(models.Model):
 
     def delete(self, using=None, keep_parents=False):
         # Destroy all intermediate files upon deletion
-        shutil.rmtree(self.intermediate_file_path)
+        self.temp_directory.cleanup()
 
         return super().delete(using, keep_parents)
 
     def generate_draft(self, **kwargs):
-        os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
-
         cmd_kwargs = {
             **kwargs,
             'fee': 0,
@@ -268,7 +270,7 @@ class AbstractTransaction(models.Model):
         CardanoUtils.refresh_protocol_parameters()
 
         raw_response = self.cli.run('transaction calculate-min-fee', **{
-            'tx-body-file': self.draft_tx_file_path,
+            'tx-body-file': tx_body_file_path,
             'tx-in-count': len(self.inputs),
             'tx-out-count': len(self.outputs),
             'witness-count': 2 if self.minting_policy else 1,
@@ -280,8 +282,6 @@ class AbstractTransaction(models.Model):
         return int(match[1])
 
     def submit(self, wallet, fee, password, invalid_hereafter=None, **tx_kwargs):
-        os.makedirs(self.intermediate_file_path, 0o755, exist_ok=True)
-
         # Determine the TTL (time to Live) for the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#determine-the-ttl-time-to-live-for-the-transaction
         if not invalid_hereafter:
@@ -350,7 +350,7 @@ class AbstractTransaction(models.Model):
         })
 
         # Clean up intermediate files
-        shutil.rmtree(self.intermediate_file_path)
+        self.temp_directory.cleanup()
 
 
 class Transaction(AbstractTransaction):

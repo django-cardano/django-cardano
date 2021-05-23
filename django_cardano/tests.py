@@ -100,9 +100,10 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(draft_tx_fee, int))
         self.assertTrue(draft_transaction._state.adding)
-        self.assertTrue(draft_transaction.intermediate_file_path.exists)
 
         intermediate_file_path = draft_transaction.intermediate_file_path
+        self.assertTrue(intermediate_file_path.exists())
+
         draft_transaction.delete()
 
         # Ensure that the intermediate files were deleted
