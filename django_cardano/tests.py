@@ -13,6 +13,7 @@ from .models import (
     get_transaction_model,
     get_wallet_model,
 )
+from .settings import django_cardano_settings
 from .util import CardanoUtils
 
 MintingPolicy = get_minting_policy_model()
@@ -24,13 +25,12 @@ DEFAULT_MINTING_PASSWORD = 'eMgP3AjU&6KRVTrU'
 
 
 def data_path_for_model(instance):
-    base_path = os.environ.get('CARDANO_APP_DATA_PATH')
+    base_path = Path(django_cardano_settings.APP_DATA_PATH)
     model_name = slugify(instance._meta.verbose_name)
-    return Path(base_path, model_name, str(instance.id))
+    return base_path / model_name / str(instance.id)
 
 
 class DjangoCardanoTestCase(TestCase):
-    cardano = CardanoUtils()
     wallet = None
 
     @classmethod
@@ -48,7 +48,7 @@ class DjangoCardanoTestCase(TestCase):
         shutil.rmtree(data_path_for_model(cls.wallet))
 
     def test_query_tip(self):
-        tip_info = self.cardano.query_tip()
+        tip_info = CardanoUtils.query_tip()
 
         self.assertIn('block', tip_info)
         self.assertIn('epoch', tip_info)
@@ -60,7 +60,7 @@ class DjangoCardanoTestCase(TestCase):
             wallet = Wallet.objects.create(name='Test Wallet')
             wallet.generate_keys(DEFAULT_SPENDING_PASSWORD)
 
-            address_info = self.cardano.address_info(wallet.payment_address)
+            address_info = CardanoUtils.address_info(wallet.payment_address)
             self.assertEqual(address_info['type'], 'payment')
             self.assertEqual(address_info['encoding'], 'bech32')
             self.assertEqual(address_info['era'], 'shelley')
@@ -71,7 +71,7 @@ class DjangoCardanoTestCase(TestCase):
             print(e)
 
     def test_get_address_info(self):
-        address_info = self.cardano.address_info(self.wallet.payment_address)
+        address_info = CardanoUtils.address_info(self.wallet.payment_address)
         self.assertTrue(isinstance(address_info, dict))
 
     def test_get_utxos(self):
@@ -100,9 +100,10 @@ class DjangoCardanoTestCase(TestCase):
         self.assertTrue(isinstance(draft_transaction, Transaction))
         self.assertTrue(isinstance(draft_tx_fee, int))
         self.assertTrue(draft_transaction._state.adding)
-        self.assertTrue(draft_transaction.intermediate_file_path.exists)
 
         intermediate_file_path = draft_transaction.intermediate_file_path
+        self.assertTrue(intermediate_file_path.exists())
+
         draft_transaction.delete()
 
         # Ensure that the intermediate files were deleted
@@ -137,7 +138,13 @@ class DjangoCardanoTestCase(TestCase):
         print(transaction.tx_id)
 
     def test_create_minting_policy(self):
-        minting_policy = MintingPolicy.objects.create(password=DEFAULT_SPENDING_PASSWORD)
+        tip = CardanoUtils.query_tip()
+        valid_before_slot = tip['slot'] + django_cardano_settings.DEFAULT_TRANSACTION_TTL
+
+        minting_policy = MintingPolicy.objects.create(
+            password=DEFAULT_SPENDING_PASSWORD,
+            valid_before_slot=valid_before_slot,
+        )
         policy_script_path = Path(minting_policy.script.path)
         self.assertTrue(policy_script_path.exists())
 

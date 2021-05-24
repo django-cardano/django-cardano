@@ -31,12 +31,6 @@ def sort_utxos(utxos, type=settings.LOVELACE_UNIT, order='desc') -> list:
         return sorted(utxos, key=lambda v: v['Tokens'][type])
 
 
-def create_intermediate_directory(*subpath_components) -> Path:
-    path = Path(settings.INTERMEDIATE_FILE_PATH, *subpath_components)
-    os.makedirs(path, 0o755)
-    return path
-
-
 def clean_token_asset_name(asset_name: str) -> str:
     """
     :param asset_name: The asset_name segment of a Cardano native token

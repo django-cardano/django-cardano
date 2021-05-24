@@ -5,33 +5,32 @@ from pathlib import Path
 from .cli import CardanoCLI
 from .settings import django_cardano_settings as settings
 
-
 class CardanoUtils:
-    def __init__(self) -> None:
-        super().__init__()
+    cli = CardanoCLI()
+    protocol_parameters_path = Path(settings.APP_DATA_PATH, 'protocol.json')
 
-        self.cli = CardanoCLI()
-        
-        if not os.path.exists(settings.INTERMEDIATE_FILE_PATH):
-            os.makedirs(settings.INTERMEDIATE_FILE_PATH, 0o755)
 
-        self.protocol_parameters_path = Path(settings.INTERMEDIATE_FILE_PATH, 'protocol.json')
+    @classmethod
+    def refresh_protocol_parameters(cls) -> dict:
+        if not os.path.exists(settings.APP_DATA_PATH):
+            os.makedirs(settings.APP_DATA_PATH, 0o755)
 
-    def refresh_protocol_parameters(self) -> dict:
-        self.cli.run('query protocol-parameters', **{
+        cls.cli.run('query protocol-parameters', **{
             'network': settings.NETWORK,
-            'out-file': self.protocol_parameters_path,
+            'out-file': cls.protocol_parameters_path,
         })
 
-        with open(self.protocol_parameters_path, 'r') as protocol_parameters_file:
+        with open(cls.protocol_parameters_path, 'r') as protocol_parameters_file:
             protocol_parameters = json.load(protocol_parameters_file)
 
         return protocol_parameters
 
-    def query_tip(self) -> dict:
-        response = self.cli.run('query tip', network=settings.NETWORK)
+    @classmethod
+    def query_tip(cls) -> dict:
+        response = cls.cli.run('query tip', network=settings.NETWORK)
         return json.loads(response)
 
-    def address_info(self, address):
-        response = self.cli.run('address info', address=address)
+    @classmethod
+    def address_info(cls, address):
+        response = cls.cli.run('address info', address=address)
         return json.loads(response)
