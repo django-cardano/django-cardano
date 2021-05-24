@@ -324,7 +324,7 @@ class AbstractTransaction(models.Model):
         except ValueError as e:
             raise CardanoError(str(e))
 
-        if self.minting_policy:
+        if self.minting_policy and self.minting_password:
             signing_kwargs['script-file'] = self.minting_policy.script.path
 
             pyAesCrypt.decryptFile(
@@ -474,8 +474,8 @@ class AbstractWallet(models.Model):
     def generate_keys(self, password):
         cardano_cli = CardanoCLI()
 
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            intermediate_file_path = Path(tmpdirname)
+        with tempfile.TemporaryDirectory() as tmp_path:
+            intermediate_file_path = Path(tmp_path)
 
             # Generate the payment signing & verification keys
             signing_key_path = intermediate_file_path / 'signing.key'
