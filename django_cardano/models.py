@@ -520,8 +520,6 @@ class AbstractWallet(models.Model):
                     file_field = getattr(self, field_name)
                     file_field.save(f'{filename}.aes', fCiph, save=False)
 
-            self.full_clean()
-            self.save()
 
     def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
         from_address = self.payment_address
