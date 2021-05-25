@@ -1,8 +1,6 @@
 import io
 import json
-import os
 import pyAesCrypt
-import shutil
 import tempfile
 import uuid
 
