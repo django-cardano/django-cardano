@@ -9,7 +9,6 @@ class CardanoUtils:
     cli = CardanoCLI()
     protocol_parameters_path = Path(settings.APP_DATA_PATH, 'protocol.json')
 
-
     @classmethod
     def refresh_protocol_parameters(cls) -> dict:
         if not os.path.exists(settings.APP_DATA_PATH):
@@ -34,3 +33,9 @@ class CardanoUtils:
     def address_info(cls, address):
         response = cls.cli.run('address info', address=address)
         return json.loads(response)
+
+    @classmethod
+    def tx_info(cls, tx_file):
+        return cls.cli.run('transaction view', **{
+            'tx-file': tx_file
+        })

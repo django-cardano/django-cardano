@@ -6,6 +6,7 @@ import uuid
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 from django.db import models
 from django.apps import apps as django_apps
@@ -224,20 +225,8 @@ class AbstractTransaction(models.Model):
         return self.intermediate_file_path / 'transaction.draft'
 
     @property
-    def raw_tx_file_path(self) -> Path:
-        return self.intermediate_file_path / 'transaction.raw'
-
-    @property
-    def signed_tx_file_path(self) -> Path:
-        return self.intermediate_file_path / 'transaction.signed'
-
-    @property
-    def signing_key_file_path(self) -> Path:
-        return self.intermediate_file_path / 'signing.key'
-
-    @property
-    def policy_signing_key_file_path(self) -> Path:
-        return self.intermediate_file_path / 'policy-signing.key'
+    def tx_info(self) -> Optional[dict]:
+        return CardanoUtils.tx_info(self.tx_file.path) if self.tx_file else None
 
     @property
     def tx_args(self) -> list:
@@ -285,6 +274,11 @@ class AbstractTransaction(models.Model):
         return int(match[1])
 
     def submit(self, wallet, fee, password, invalid_hereafter=None, **tx_kwargs):
+        raw_tx_file_path = self.intermediate_file_path / 'transaction.raw'
+        signed_tx_file_path = self.intermediate_file_path / 'transaction.signed'
+        signing_key_file_path = self.intermediate_file_path / 'signing.key'
+        policy_signing_key_file_path = self.intermediate_file_path / 'policy-signing.key'
+
         # Determine the TTL (time to Live) for the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#determine-the-ttl-time-to-live-for-the-transaction
         if not invalid_hereafter:
@@ -295,7 +289,7 @@ class AbstractTransaction(models.Model):
             **tx_kwargs,
             'fee': fee,
             'invalid-hereafter': invalid_hereafter,
-            'out-file': self.raw_tx_file_path,
+            'out-file': raw_tx_file_path,
         }
 
         if self.metadata:
@@ -310,9 +304,9 @@ class AbstractTransaction(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#sign-the-transaction
         signing_args = []
         signing_kwargs = {
-            'signing-key-file': self.signing_key_file_path,
-            'tx-body-file': self.raw_tx_file_path,
-            'out-file': self.signed_tx_file_path,
+            'signing-key-file': signing_key_file_path,
+            'tx-body-file': raw_tx_file_path,
+            'out-file': signed_tx_file_path,
             'network': cardano_settings.NETWORK
         }
 
@@ -320,7 +314,7 @@ class AbstractTransaction(models.Model):
         try:
             pyAesCrypt.decryptFile(
                 wallet.payment_signing_key.path,
-                self.signing_key_file_path,
+                signing_key_file_path,
                 password,
                 ENCRYPTION_BUFFER_SIZE
             )
@@ -332,29 +326,29 @@ class AbstractTransaction(models.Model):
 
             pyAesCrypt.decryptFile(
                 self.minting_policy.signing_key.path,
-                self.policy_signing_key_file_path,
+                policy_signing_key_file_path,
                 self.minting_password,
                 ENCRYPTION_BUFFER_SIZE
             )
-            signing_args.append(('signing-key-file', self.policy_signing_key_file_path))
+            signing_args.append(('signing-key-file', policy_signing_key_file_path))
 
         # Sign the transaction
         self.cli.run('transaction sign', *signing_args, **signing_kwargs)
 
         self.tx_id = self.cli.run('transaction txid', **{
-            'tx-file': self.signed_tx_file_path
+            'tx-file': signed_tx_file_path
         })
 
         # Submit the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#submit-the-transaction
         self.cli.run('transaction submit', **{
-            'tx-file': self.signed_tx_file_path,
+            'tx-file': signed_tx_file_path,
             'network': cardano_settings.NETWORK
         })
 
-        with open(self.signed_tx_file_path, 'rb') as signed_tx_file:
+        with open(signed_tx_file_path, 'rb') as signed_tx_file:
             with ContentFile(signed_tx_file.read()) as file_content:
-                self.tx_file.save(self.signed_tx_file_path.name, file_content, save=False)
+                self.tx_file.save(signed_tx_file_path.name, file_content, save=False)
 
         # Clean up intermediate files
         self.temp_directory.cleanup()
