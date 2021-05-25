@@ -173,8 +173,8 @@ class MintingPolicy(AbstractMintingPolicy):
 
 # ---------------------------------------------------------------------------------
 class TransactionTypes(models.IntegerChoices):
-    LOVELACE_PAYMENT = 1
-    TOKEN_PAYMENT = 2
+    LOVELACE_TRANSFER = 1
+    TOKEN_TRANSFER = 2
     TOKEN_MINT = 3
     TOKEN_CONSOLIDATION = 4
     LOVELACE_PARTITION = 5
@@ -183,11 +183,16 @@ class TransactionTypes(models.IntegerChoices):
 class AbstractTransaction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tx_id = models.CharField(max_length=64, blank=True, null=True)
+    tx_file = models.FileField(
+        max_length=200,
+        upload_to=file_upload_path,
+        storage=CardanoDataStorage
+    )
+    tx_type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     inputs = models.JSONField(default=list)
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
-    type = models.PositiveSmallIntegerField(choices=TransactionTypes.choices)
 
     class Meta:
         abstract = True
@@ -346,6 +351,10 @@ class AbstractTransaction(models.Model):
             'tx-file': self.signed_tx_file_path,
             'network': cardano_settings.NETWORK
         })
+
+        with open(self.signed_tx_file_path, 'rb') as signed_tx_file:
+            with ContentFile(signed_tx_file.read()) as file_content:
+                self.tx_file.save(self.signed_tx_file_path.name, file_content, save=False)
 
         # Clean up intermediate files
         self.temp_directory.cleanup()
@@ -528,7 +537,7 @@ class AbstractWallet(models.Model):
         estimated_tx_fee = protocol_parameters.get('txFeeFixed')
 
         transaction_class = get_transaction_model()
-        transaction = transaction_class(type=TransactionTypes.LOVELACE_PAYMENT)
+        transaction = transaction_class(tx_type=TransactionTypes.LOVELACE_TRANSFER)
 
         # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
@@ -593,7 +602,7 @@ class AbstractWallet(models.Model):
             raise CardanoError('Insufficient ADA funds to complete transaction')
 
         transaction_model_class = get_transaction_model()
-        transaction = transaction_model_class(type=TransactionTypes.TOKEN_PAYMENT)
+        transaction = transaction_model_class(tx_type=TransactionTypes.TOKEN_TRANSFER)
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
         # to pay for the transaction (including fees)
@@ -665,7 +674,7 @@ class AbstractWallet(models.Model):
         all_tokens, utxos = self.balance
 
         transaction_model_class = get_transaction_model()
-        transaction = transaction_model_class(type=TransactionTypes.TOKEN_CONSOLIDATION)
+        transaction = transaction_model_class(tx_type=TransactionTypes.TOKEN_CONSOLIDATION)
 
         # Traverse the set of utxos at the given wallet's payment address,
         # accumulating the total count of each type of token.
@@ -721,7 +730,7 @@ class AbstractWallet(models.Model):
         :return:
         """
         transaction_model_class = get_transaction_model()
-        transaction = transaction_model_class(type=TransactionTypes.LOVELACE_PARTITION)
+        transaction = transaction_model_class(tx_type=TransactionTypes.LOVELACE_PARTITION)
 
         surplus_lovelace = 0
         lovelace_utxos = filter_utxos(self.utxos, type=lovelace_unit)
@@ -809,7 +818,7 @@ class AbstractWallet(models.Model):
 
         transaction_model_class = get_transaction_model()
         transaction = transaction_model_class(
-            type=TransactionTypes.TOKEN_MINT,
+            tx_type=TransactionTypes.TOKEN_MINT,
             metadata=tx_metadata,
         )
         transaction.minting_policy = policy
