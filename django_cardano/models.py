@@ -167,6 +167,7 @@ class AbstractMintingPolicy(models.Model):
 class MintingPolicy(AbstractMintingPolicy):
     class Meta:
         swappable = 'DJANGO_CARDANO_MINTING_POLICY_MODEL'
+        verbose_name_plural = 'Minting Policies'
 
 
 # ---------------------------------------------------------------------------------

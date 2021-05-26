@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 'swappable': 'DJANGO_CARDANO_MINTING_POLICY_MODEL',
+                'verbose_name_plural': 'Minting Policies',
             },
         ),
         migrations.CreateModel(
