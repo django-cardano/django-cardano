@@ -756,11 +756,9 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def mint_tokens(self, policy, quantity, to_address,
-                    spending_password, minting_password,
-                    asset_name=None, metadata=dict,
-                    payment_utxo=None, change_address=None
-                    ) -> (AbstractTransaction, AbstractMintingPolicy):
+    def mint_tokens(self, policy, quantity, to_address, spending_password, minting_password,
+                    asset_name=None, metadata=dict, payment_utxo=None, change_address=None
+                    ) -> AbstractTransaction:
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
         :param policy: Policy that will be used to mint the token
@@ -846,7 +844,7 @@ class AbstractWallet(models.Model):
             # Let successful transactions be persisted to the database
             transaction.save()
 
-        return transaction, policy
+        return transaction
 
 
 class Wallet(AbstractWallet):
