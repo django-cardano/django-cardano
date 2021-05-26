@@ -163,7 +163,7 @@ class AbstractMintingPolicy(models.Model):
         abstract = True
 
     def __str__(self):
-        return self.policy_id
+        return self.name if self.name else self.policy_id
 
 
 class MintingPolicy(AbstractMintingPolicy):
