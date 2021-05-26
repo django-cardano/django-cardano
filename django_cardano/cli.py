@@ -15,8 +15,8 @@ UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
 
 class CardanoCLI:
-    @staticmethod
-    def run(command, *args, **kwargs) -> str:
+    @classmethod
+    def run(cls, command, *args, **kwargs) -> str:
         """
         Invoke the specified cardano-cli command/subcommand
         The *args serve as a series of (arg_name, arg_value) tuples

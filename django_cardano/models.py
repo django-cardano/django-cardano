@@ -86,15 +86,13 @@ class MintingPolicyManager(models.Manager):
     def create(self, password, valid_before_slot, **kwargs):
         policy = self.model(**kwargs)
 
-        cardano_cli = CardanoCLI()
-
         with tempfile.TemporaryDirectory() as tmpdirname:
             intermediate_file_path = Path(tmpdirname)
 
             # 1. Create signing/verification keys for the minting policy
             signing_key_path = intermediate_file_path / 'signing.key'
             verification_key_path = intermediate_file_path / 'verification.key'
-            cardano_cli.run('address key-gen', **{
+            CardanoCLI.run('address key-gen', **{
                 'signing-key-file': signing_key_path,
                 'verification-key-file': verification_key_path,
             })
@@ -111,7 +109,7 @@ class MintingPolicyManager(models.Manager):
                     file_field = getattr(policy, field_name)
                     file_field.save(f'{filename}.aes', fCiph, save=False)
 
-            policy_key_hash = cardano_cli.run('address key-hash', **{
+            policy_key_hash = CardanoCLI.run('address key-hash', **{
                 'payment-verification-key-file': verification_key_path,
             })
 
@@ -130,7 +128,7 @@ class MintingPolicyManager(models.Manager):
                 policy.script.save('policy.script.json', file_content, save=False)
 
             # 4. Determine the policy ID (i.e. compute hash of the policy script)
-            policy.policy_id = cardano_cli.run('transaction policyid', **{
+            policy.policy_id = CardanoCLI.run('transaction policyid', **{
                 'script-file': policy.script.path
             })
 
@@ -201,7 +199,6 @@ class AbstractTransaction(models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.cli = CardanoCLI()
         self.temp_directory = tempfile.TemporaryDirectory()
         self.minting_policy = None
         self.minting_password = None
@@ -252,7 +249,7 @@ class AbstractTransaction(models.Model):
                 'metadata-json-file': self.metadata_file_path,
             })
 
-        self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
+        CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
     def calculate_min_fee(self) -> int:
         tx_body_file_path = Path(self.draft_tx_file_path)
@@ -261,7 +258,7 @@ class AbstractTransaction(models.Model):
 
         CardanoUtils.refresh_protocol_parameters()
 
-        raw_response = self.cli.run('transaction calculate-min-fee', **{
+        raw_response = CardanoCLI.run('transaction calculate-min-fee', **{
             'tx-body-file': tx_body_file_path,
             'tx-in-count': len(self.inputs),
             'tx-out-count': len(self.outputs),
@@ -298,7 +295,7 @@ class AbstractTransaction(models.Model):
                 'metadata-json-file': self.metadata_file_path,
             })
 
-        self.cli.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
+        CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
         # Sign the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#sign-the-transaction
@@ -333,15 +330,15 @@ class AbstractTransaction(models.Model):
             signing_args.append(('signing-key-file', policy_signing_key_file_path))
 
         # Sign the transaction
-        self.cli.run('transaction sign', *signing_args, **signing_kwargs)
+        CardanoCLI.run('transaction sign', *signing_args, **signing_kwargs)
 
-        self.tx_id = self.cli.run('transaction txid', **{
+        self.tx_id = CardanoCLI.run('transaction txid', **{
             'tx-file': signed_tx_file_path
         })
 
         # Submit the transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#submit-the-transaction
-        self.cli.run('transaction submit', **{
+        CardanoCLI.run('transaction submit', **{
             'tx-file': signed_tx_file_path,
             'network': cardano_settings.NETWORK
         })
@@ -423,10 +420,6 @@ class AbstractWallet(models.Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cli = CardanoCLI()
-
     def __str__(self):
         return self.name
 
@@ -434,7 +427,7 @@ class AbstractWallet(models.Model):
     def utxos(self) -> list:
         utxos = []
 
-        response = self.cli.run(
+        response = CardanoCLI.run(
             'query utxo',
             address=self.payment_address,
             network=cardano_settings.NETWORK
@@ -473,15 +466,13 @@ class AbstractWallet(models.Model):
         return all_tokens, utxos
 
     def generate_keys(self, password):
-        cardano_cli = CardanoCLI()
-
         with tempfile.TemporaryDirectory() as tmp_path:
             intermediate_file_path = Path(tmp_path)
 
             # Generate the payment signing & verification keys
             signing_key_path = intermediate_file_path / 'signing.key'
             verification_key_path = intermediate_file_path / 'verification.key'
-            cardano_cli.run('address key-gen', **{
+            CardanoCLI.run('address key-gen', **{
                 'signing-key-file': signing_key_path,
                 'verification-key-file': verification_key_path,
             })
@@ -489,20 +480,20 @@ class AbstractWallet(models.Model):
             # Generate the stake signing & verification keys
             stake_signing_key_path = intermediate_file_path / 'stake-signing.key'
             stake_verification_key_path = intermediate_file_path / 'stake-verification.key'
-            cardano_cli.run('stake-address key-gen', **{
+            CardanoCLI.run('stake-address key-gen', **{
                 'signing-key-file': stake_signing_key_path,
                 'verification-key-file': stake_verification_key_path,
             })
 
             # Create the payment address.
-            self.payment_address = cardano_cli.run('address build', **{
+            self.payment_address = CardanoCLI.run('address build', **{
                 'payment-verification-key-file': verification_key_path,
                 'stake-verification-key-file': stake_verification_key_path,
                 'network': cardano_settings.NETWORK,
             })
 
             # Create the staking address.
-            self.stake_address = cardano_cli.run('stake-address build', **{
+            self.stake_address = CardanoCLI.run('stake-address build', **{
                 'stake-verification-key-file': stake_verification_key_path,
                 'network': cardano_settings.NETWORK,
             })

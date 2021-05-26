@@ -6,7 +6,6 @@ from .cli import CardanoCLI
 from .settings import django_cardano_settings as settings
 
 class CardanoUtils:
-    cli = CardanoCLI()
     protocol_parameters_path = Path(settings.APP_DATA_PATH, 'protocol.json')
 
     @classmethod
@@ -14,7 +13,7 @@ class CardanoUtils:
         if not os.path.exists(settings.APP_DATA_PATH):
             os.makedirs(settings.APP_DATA_PATH, 0o755)
 
-        cls.cli.run('query protocol-parameters', **{
+        CardanoCLI.run('query protocol-parameters', **{
             'network': settings.NETWORK,
             'out-file': cls.protocol_parameters_path,
         })
@@ -26,16 +25,16 @@ class CardanoUtils:
 
     @classmethod
     def query_tip(cls) -> dict:
-        response = cls.cli.run('query tip', network=settings.NETWORK)
+        response = CardanoCLI.run('query tip', network=settings.NETWORK)
         return json.loads(response)
 
     @classmethod
     def address_info(cls, address):
-        response = cls.cli.run('address info', address=address)
+        response = CardanoCLI.run('address info', address=address)
         return json.loads(response)
 
     @classmethod
     def tx_info(cls, tx_file):
-        return cls.cli.run('transaction view', **{
+        return CardanoCLI.run('transaction view', **{
             'tx-file': tx_file
         })
