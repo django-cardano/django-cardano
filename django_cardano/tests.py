@@ -152,24 +152,34 @@ class DjangoCardanoTestCase(TestCase):
         shutil.rmtree(data_path_for_model(minting_policy))
 
     def test_mint_nft(self):
-        def construct_nft_metadata(policy, asset_name):
-            return {
-                "721": {
-                    policy.policy_id: {
-                        asset_name: {
-                            'name': 'django-cardano Test NFT',
-                            'description': 'The Cardano Logo (in SVG format)',
-                            'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
+        current_slot = int(CardanoUtils.query_tip()['slot'])
+        invalid_hereafter = current_slot + django_cardano_settings.DEFAULT_TRANSACTION_TTL
 
-                        }
+        policy = MintingPolicy.objects.create(
+            password=DEFAULT_MINTING_PASSWORD,
+            valid_before_slot=invalid_hereafter,
+        )
+        asset_name = 'TestNFT'
+
+        tx_metadata = {
+            "721": {
+                policy.policy_id: {
+                    asset_name: {
+                        'name': 'django-cardano Test NFT',
+                        'description': 'The Cardano Logo (in SVG format)',
+                        'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
+
                     }
                 }
             }
+        }
 
-        transaction = self.wallet.mint_nft(
-            asset_name="Test NFT",
-            metadata=construct_nft_metadata,
+        transaction = self.wallet.mint_tokens(
+            policy=policy,
+            quantity=1,
             to_address=self.wallet.payment_address,
             spending_password=DEFAULT_SPENDING_PASSWORD,
             minting_password=DEFAULT_MINTING_PASSWORD,
+            asset_name=asset_name,
+            metadata=tx_metadata,
         )

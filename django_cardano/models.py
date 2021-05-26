@@ -26,7 +26,6 @@ from .exceptions import CardanoError
 from .util import CardanoUtils
 
 from .shortcuts import (
-    clean_token_asset_name,
     filter_utxos,
     sort_utxos,
 )
@@ -750,17 +749,20 @@ class AbstractWallet(models.Model):
 
         return transaction
 
-    def mint_nft(self, asset_name, metadata, to_address, spending_password,
-                 minting_password, minting_policy_kwargs=None,
-                 payment_utxo=None, change_address=None) -> (AbstractTransaction, AbstractMintingPolicy):
+    def mint_tokens(self, policy, quantity, to_address,
+                    spending_password, minting_password,
+                    asset_name=None, metadata=dict,
+                    payment_utxo=None, change_address=None
+                    ) -> (AbstractTransaction, AbstractMintingPolicy):
         """
         https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#start-the-minting-process
-        :param asset_name: Name component of the unique asset ID (<policy_id>.<asset_name>)
-        :param metadata: Metadata to include in the minting transaction
+        :param policy: Policy that will be used to mint the token
+        :param quantity: Number of tokens to mint
         :param to_address: Address to send minted token to
         :param spending_password: Password required to decrypt wallet signing key
         :param minting_password: Password required to decrypt policy signing key
-        :param minting_policy_kwargs: Optional arguments to be passed to Policy creation
+        :param asset_name: Name component of the unique asset ID (<policy_id>.<asset_name>)
+        :param metadata: Metadata to include in the minting transaction
         :param payment_utxo: Specific
         :param change_address: Address to receive excess funds
         """
@@ -780,31 +782,20 @@ class AbstractWallet(models.Model):
         current_slot = int(CardanoUtils.query_tip()['slot'])
         invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
 
-        minting_policy_create_args = {
-            'password': minting_password,
-            'valid_before_slot': invalid_hereafter,
-        }
-        if minting_policy_kwargs:
-            minting_policy_create_args.update(minting_policy_kwargs)
-        policy_class = get_minting_policy_model()
-        policy = policy_class.objects.create(**minting_policy_create_args)
-
-        # By specifying a quantity of one (1) we express our intent
-        # to mint ONE AND ONLY ONE of this token...Ever.
+        # Specify the asset ID and quantity of tokens to mint
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
-        cleaned_asset_name = clean_token_asset_name(asset_name)
-        mint_argument = f'"1 {policy.policy_id}.{cleaned_asset_name}"'
+        asset_id = policy.policy_id
+        if asset_name:
+            asset_id = f'{asset_id}.{asset_name}'
+        mint_argument = f'"{quantity} {asset_id}"'
 
         # Structure the token metadata according to the proposed "721" standard
         # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
-        tx_metadata = metadata
-        if callable(tx_metadata):
-            tx_metadata = tx_metadata(policy, cleaned_asset_name)
 
         transaction_model_class = get_transaction_model()
         transaction = transaction_model_class(
             tx_type=TransactionTypes.TOKEN_MINT,
-            metadata=tx_metadata,
+            metadata=metadata,
         )
         transaction.minting_policy = policy
         transaction.minting_password = minting_password
