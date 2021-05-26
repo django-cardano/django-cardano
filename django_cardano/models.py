@@ -22,7 +22,7 @@ from .cli import (
 )
 
 from .fields import CardanoAddressField
-from .exceptions import CardanoError
+from .exceptions import CardanoError, CardanoErrorType
 from .util import CardanoUtils
 
 from .shortcuts import (
@@ -318,17 +318,27 @@ class AbstractTransaction(models.Model):
                 ENCRYPTION_BUFFER_SIZE
             )
         except ValueError as e:
-            raise CardanoError(str(e))
+            raise CardanoError(
+                source_error=e,
+                code=CardanoErrorType.SIGNING_KEY_DECRYPTION_FAILURE
+            )
 
         if self.minting_policy and self.minting_password:
             signing_kwargs['script-file'] = self.minting_policy.script.path
 
-            pyAesCrypt.decryptFile(
-                self.minting_policy.signing_key.path,
-                policy_signing_key_file_path,
-                self.minting_password,
-                ENCRYPTION_BUFFER_SIZE
-            )
+            try:
+                pyAesCrypt.decryptFile(
+                    self.minting_policy.signing_key.path,
+                    policy_signing_key_file_path,
+                    self.minting_password,
+                    ENCRYPTION_BUFFER_SIZE
+                )
+            except ValueError as e:
+                raise CardanoError(
+                    source_error=e,
+                    code=CardanoErrorType.POLICY_SIGNING_KEY_DECRYPTION_FAILURE,
+                )
+
             signing_args.append(('signing-key-file', policy_signing_key_file_path))
 
         # Sign the transaction
@@ -740,7 +750,7 @@ class AbstractWallet(models.Model):
 
         transaction.generate_draft()
 
-        if password:
+        if password is not None:
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
             tx_fee = transaction.calculate_min_fee()
 
@@ -823,7 +833,7 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
         transaction.generate_draft(mint=mint_argument)
 
-        if spending_password:
+        if spending_password is not None and minting_password is not None:
             # Calculate the fee
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-fee
             tx_fee = transaction.calculate_min_fee()
