@@ -55,6 +55,11 @@ class DjangoCardanoTestCase(TestCase):
         self.assertIn('hash', tip_info)
         self.assertIn('slot', tip_info)
 
+    def test_refresh_protocol_parameters(self):
+        protocol_parameters = CardanoUtils.refresh_protocol_parameters()
+        self.assertIn('minUTxOValue', protocol_parameters)
+        self.assertIn('txFeePerByte', protocol_parameters)
+
     def test_create_wallet(self):
         try:
             wallet = Wallet.objects.create(
