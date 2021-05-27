@@ -309,7 +309,7 @@ class AbstractTransaction(models.Model):
             'network': cardano_settings.NETWORK
         }
 
-        # Decrypt this wallet's signing key and save it as an intermediate file
+        # Decrypt this wallet's signing key and store it as a temporary file
         try:
             pyAesCrypt.decryptFile(
                 wallet.payment_signing_key.path,
@@ -326,6 +326,7 @@ class AbstractTransaction(models.Model):
         if self.minting_policy and self.minting_password:
             signing_kwargs['script-file'] = self.minting_policy.script.path
 
+            # Decrypt the policy signing key and store it as a temporary file
             try:
                 pyAesCrypt.decryptFile(
                     self.minting_policy.signing_key.path,
@@ -333,13 +334,12 @@ class AbstractTransaction(models.Model):
                     self.minting_password,
                     ENCRYPTION_BUFFER_SIZE
                 )
+                signing_args.append(('signing-key-file', policy_signing_key_file_path))
             except ValueError as e:
                 raise CardanoError(
                     source_error=e,
                     code=CardanoErrorType.POLICY_SIGNING_KEY_DECRYPTION_FAILURE,
                 )
-
-            signing_args.append(('signing-key-file', policy_signing_key_file_path))
 
         # Sign the transaction
         CardanoCLI.run('transaction sign', *signing_args, **signing_kwargs)
@@ -518,6 +518,10 @@ class AbstractWallet(models.Model):
         return utxos
 
     @property
+    def lovelace_utxos(self) -> list:
+        return filter_utxos(self.utxos, type=lovelace_unit)
+
+    @property
     def balance(self) -> tuple:
         utxos = self.utxos
         all_tokens = defaultdict(int)
@@ -542,9 +546,7 @@ class AbstractWallet(models.Model):
 
         # Get the transaction hash and index of the UTxO(s) to spend
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#get-the-transaction-hash-and-index-of-the-utxo-to-spend
-        sorted_lovelace_utxos = sort_utxos(
-            filter_utxos(self.utxos, type=lovelace_unit)
-        )
+        sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
 
         total_lovelace_being_sent = 0
         for utxo in sorted_lovelace_utxos:
@@ -594,10 +596,10 @@ class AbstractWallet(models.Model):
         payment_address = self.payment_address
 
         utxos = self.utxos
-        lovelace_utxos = sort_utxos(filter_utxos(utxos, type=lovelace_unit))
+        sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
         token_utxos = sort_utxos(filter_utxos(utxos, type=asset_id), type=asset_id)
 
-        if not lovelace_utxos:
+        if not sorted_lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
             # This will be used to pay for the transaction.
             raise CardanoError('Insufficient ADA funds to complete transaction')
@@ -607,7 +609,7 @@ class AbstractWallet(models.Model):
 
         # ASSUMPTION: The largest ADA UTxO shall contain sufficient ADA
         # to pay for the transaction (including fees)
-        lovelace_utxo = lovelace_utxos[0]
+        lovelace_utxo = sorted_lovelace_utxos[0]
         total_lovelace_being_sent = lovelace_utxo['Tokens'][lovelace_unit]
         transaction.inputs = [('tx-in', '{}#{}'.format(lovelace_utxo['TxHash'], lovelace_utxo['TxIx']))]
 
@@ -734,8 +736,7 @@ class AbstractWallet(models.Model):
         transaction = transaction_model_class(tx_type=TransactionTypes.LOVELACE_PARTITION)
 
         surplus_lovelace = 0
-        lovelace_utxos = filter_utxos(self.utxos, type=lovelace_unit)
-        for utxo in lovelace_utxos:
+        for utxo in self.lovelace_utxos:
             tx_hash = utxo['TxHash']
             tx_index = utxo['TxIx']
             transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
@@ -786,16 +787,12 @@ class AbstractWallet(models.Model):
         if not payment_utxo:
             # If a payment utxo was not explicitly provided, we will use this wallet's largest
             # UTxO with the assumption that it will cover the transaction (including fees)
-            lovelace_utxos = sort_utxos(filter_utxos(self.utxos, type=lovelace_unit))
-            if not lovelace_utxos:
+            sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
+            if not sorted_lovelace_utxos:
                 # Let there be be at least one UTxO containing purely ADA.
                 # This will be used to pay for the transaction.
                 raise CardanoError(f'Inadequate funds to complete transaction')
-            payment_utxo = lovelace_utxos[0]
-
-        # Generate a single-use policy to be used solely for this NFT
-        current_slot = int(CardanoUtils.query_tip()['slot'])
-        invalid_hereafter = current_slot + cardano_settings.DEFAULT_TRANSACTION_TTL
+            payment_utxo = sorted_lovelace_utxos[0]
 
         # Specify the asset ID and quantity of tokens to mint
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
@@ -847,7 +844,6 @@ class AbstractWallet(models.Model):
                 wallet=self,
                 fee=tx_fee,
                 password=spending_password,
-                invalid_hereafter=invalid_hereafter,
                 mint=mint_argument,
             )
 
