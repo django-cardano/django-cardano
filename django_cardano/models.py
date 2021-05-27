@@ -519,7 +519,11 @@ class AbstractWallet(models.Model):
 
     @property
     def lovelace_utxos(self) -> list:
-        return filter_utxos(self.utxos, type=lovelace_unit)
+        return filter_utxos(self.utxos, include=lovelace_unit)
+
+    @property
+    def token_utxos(self) -> list:
+        return filter_utxos(self.utxos, exclude=lovelace_unit)
 
     @property
     def balance(self) -> tuple:
@@ -597,7 +601,7 @@ class AbstractWallet(models.Model):
 
         utxos = self.utxos
         sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
-        token_utxos = sort_utxos(filter_utxos(utxos, type=asset_id), type=asset_id)
+        token_utxos = sort_utxos(filter_utxos(utxos, include=asset_id), type=asset_id)
 
         if not sorted_lovelace_utxos:
             # Let there be be at least one UTxO containing purely ADA.
