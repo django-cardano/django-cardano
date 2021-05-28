@@ -538,8 +538,6 @@ class AbstractWallet(models.Model):
         return all_tokens, utxos
 
     def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
-        from_address = self.payment_address
-
         # The protocol's declared txFeeFixed will give us a fair estimate
         # of how much the fee for this transaction will be.
         protocol_parameters = CardanoUtils.refresh_protocol_parameters()
@@ -569,7 +567,7 @@ class AbstractWallet(models.Model):
         #   - The "change" being returned to the sender
         transaction.outputs = [
             ('tx-out', f'{to_address}+{quantity}'),
-            ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
+            ('tx-out', f'{self.payment_address}+{total_lovelace_being_sent}'),
         ]
 
         # Draft the transaction:
@@ -588,7 +586,7 @@ class AbstractWallet(models.Model):
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
-            transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{lovelace_to_return}')
 
             # Let successful transactions be persisted to the database
             transaction.submit(wallet=self, fee=tx_fee, password=password)
@@ -597,8 +595,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def send_tokens(self, asset_id, quantity, to_address, password=None) -> AbstractTransaction:
-        payment_address = self.payment_address
-
         utxos = self.utxos
         sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
         token_utxos = sort_utxos(filter_utxos(utxos, include=asset_id), type=asset_id)
@@ -648,11 +644,11 @@ class AbstractWallet(models.Model):
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
         tokens_to_return = total_tokens_being_sent - quantity
         if tokens_to_return > 0:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{tokens_to_return} {asset_id}"'))
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+"{tokens_to_return} {asset_id}"'))
             lovelace_to_return -= token_dust
 
         # The last output represents the lovelace being returned to the payment wallet
-        transaction.outputs.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{lovelace_to_return}'))
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -667,7 +663,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{lovelace_to_return - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
@@ -677,7 +673,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def consolidate_utxos(self, password=None) -> AbstractTransaction:
-        payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
         transaction_model_class = get_transaction_model()
@@ -697,14 +692,14 @@ class AbstractWallet(models.Model):
             # HACK!! The amount of ADA accompanying a token needs to be computed
             # with respect to that token's properties
             token_dust = cardano_settings.TOKEN_DUST
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
             remaining_lovelace -= token_dust
 
         # This output represents the remaining ADA.
         # It must be included in draft transaction in order to accurately compute the
         # minimum transaction fee. After the minimum fee has been calculated,
         # this output will be replaced by one that accounts for that fee.
-        transaction.outputs.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{remaining_lovelace}'))
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -719,7 +714,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{remaining_lovelace - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
@@ -746,12 +741,11 @@ class AbstractWallet(models.Model):
             transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
             surplus_lovelace += utxo['Tokens'][lovelace_unit]
 
-        payment_address = self.payment_address
         for value in values:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{value}'))
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{value}'))
             surplus_lovelace -= value
         # This final output transaction shall contain the surplus (minus tx fee)
-        transaction.outputs.append(('tx-out', f'{payment_address}+{surplus_lovelace}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{surplus_lovelace}'))
 
         transaction.generate_draft()
 
@@ -762,7 +756,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transacction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{surplus_lovelace - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{surplus_lovelace - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
