@@ -649,18 +649,18 @@ class AbstractWallet(models.Model):
 
         lovelace_to_return = total_lovelace_being_sent
 
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.TOKEN_DUST
-
         # Let the first transaction output represent the tokens being sent to the recipient
-        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{quantity} {asset_id}"')]
+        token_bundle = f'"{quantity} {asset_id}"'
+        token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+{token_bundle}')]
         lovelace_to_return -= token_dust
 
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
         tokens_to_return = total_tokens_being_sent - quantity
         if tokens_to_return > 0:
-            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+"{tokens_to_return} {asset_id}"'))
+            token_bundle = f'"{tokens_to_return} {asset_id}"'
+            token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+{token_bundle}'))
             lovelace_to_return -= token_dust
 
         # The last output represents the lovelace being returned to the payment wallet
@@ -707,8 +707,9 @@ class AbstractWallet(models.Model):
         for asset_id, asset_count in all_tokens.items():
             # HACK!! The amount of ADA accompanying a token needs to be computed
             # with respect to that token's properties
-            token_dust = cardano_settings.TOKEN_DUST
-            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
+            token_bundle = f'"{asset_count} {asset_id}"'
+            token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+{token_bundle}'))
             remaining_lovelace -= token_dust
 
         # This output represents the remaining ADA.
@@ -813,7 +814,7 @@ class AbstractWallet(models.Model):
         asset_id = policy.policy_id
         if asset_name:
             asset_id = f'{asset_id}.{asset_name}'
-        mint_argument = f'"{quantity} {asset_id}"'
+        token_bundle = f'"{quantity} {asset_id}"'
 
         # Structure the token metadata according to the proposed "721" standard
         # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
@@ -827,21 +828,20 @@ class AbstractWallet(models.Model):
         transaction.minting_password = minting_password
 
         # Compute the amount of lovelace required to accompany this token bundle
-        token_dust = CardanoUtils.min_token_dust_value(mint_argument)
-        
+        token_dust = CardanoUtils.min_token_dust_value(token_bundle)
         total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
 
         transaction.inputs = [('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx']))]
         transaction.outputs = [
-            ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
+            ('tx-out', f'{to_address}+{token_dust}+{token_bundle}'),
             ('tx-out', f'{surplus_address}+{lovelace_to_return}')
         ]
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
-        transaction.generate_draft(mint=mint_argument)
+        transaction.generate_draft(mint=token_bundle)
 
         if spending_password is not None and minting_password is not None:
             # Calculate the fee
