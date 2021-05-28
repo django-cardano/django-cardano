@@ -13,7 +13,6 @@ MIN_FEE_RE = re.compile(r'(\d+)\s+Lovelace')
 # containing rows of the form: <TxHash>    <TxIx>      <Amount>
 UTXO_RE = re.compile(r'(\w+)\s+(\d+)\s+(.*)')
 
-
 class CardanoCLI:
     @classmethod
     def run(cls, command, *args, **kwargs) -> str:

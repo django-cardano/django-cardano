@@ -23,12 +23,50 @@ Wallet = get_wallet_model()
 DEFAULT_SPENDING_PASSWORD = 'fL;$qR9FZ3?stf-M'
 DEFAULT_MINTING_PASSWORD = 'eMgP3AjU&6KRVTrU'
 
+TOKEN_BUNDLE_PARTS = [
+    '"1 fe1249f6a018ccc7a620df6226d6b9b9a63555593051b79885dc2e27"',
+    '"1 fe1249f6a018ccc7a620df6226d6b9b9a63555593051b79885dc2e28.TestNFT"',
+    '"1 fe1249f6a018ccc7a620df6226d6b9b9a63555593051b79885dc2e29.TestNFT2"',
+    '"1 fe1249f6a018ccc7a620df6226d6b9b9a63555593051b79885dc2e29.TestNFT3"',
+    '"1 fe1249f6a018ccc7a620df6226d6b9b9a63555593051b79885dc2e29.TestNFT4"',
+]
+DEFAULT_TOKEN_BUNDLE = ' '.join(TOKEN_BUNDLE_PARTS)
 
 def data_path_for_model(instance):
     base_path = Path(django_cardano_settings.APP_DATA_PATH)
     model_name = slugify(instance._meta.verbose_name)
     return base_path / model_name / str(instance.id)
 
+
+class CardanoUtilTestCase(TestCase):
+    def test_query_tip(self):
+        tip_info = CardanoUtils.query_tip()
+
+        self.assertIn('block', tip_info)
+        self.assertIn('epoch', tip_info)
+        self.assertIn('hash', tip_info)
+        self.assertIn('slot', tip_info)
+
+    def test_refresh_protocol_parameters(self):
+        protocol_parameters = CardanoUtils.refresh_protocol_parameters()
+        self.assertIn('minUTxOValue', protocol_parameters)
+        self.assertIn('txFeePerByte', protocol_parameters)
+
+    def test_token_bundle_info(self):
+        bundle_info = CardanoUtils.token_bundle_info(DEFAULT_TOKEN_BUNDLE)
+
+        self.assertIn('asset_ids', bundle_info)
+        self.assertTrue(isinstance(bundle_info['asset_ids'], list))
+        self.assertIn('distinct_policy_ids', bundle_info)
+        self.assertTrue(isinstance(bundle_info['distinct_policy_ids'], set))
+        self.assertIn('distinct_asset_names', bundle_info)
+        self.assertTrue(isinstance(bundle_info['distinct_asset_names'], set))
+        self.assertIn('tokens', bundle_info)
+        self.assertTrue(isinstance(bundle_info['tokens'], dict))
+
+    def test_token_bundle_size(self):
+        bundle_size = CardanoUtils.token_bundle_size(DEFAULT_TOKEN_BUNDLE)
+        self.assertEqual(bundle_size, 30)
 
 class DjangoCardanoTestCase(TestCase):
     wallet = None
@@ -46,19 +84,6 @@ class DjangoCardanoTestCase(TestCase):
 
         # Discard the associated key files
         shutil.rmtree(data_path_for_model(cls.wallet))
-
-    def test_query_tip(self):
-        tip_info = CardanoUtils.query_tip()
-
-        self.assertIn('block', tip_info)
-        self.assertIn('epoch', tip_info)
-        self.assertIn('hash', tip_info)
-        self.assertIn('slot', tip_info)
-
-    def test_refresh_protocol_parameters(self):
-        protocol_parameters = CardanoUtils.refresh_protocol_parameters()
-        self.assertIn('minUTxOValue', protocol_parameters)
-        self.assertIn('txFeePerByte', protocol_parameters)
 
     def test_create_wallet(self):
         try:
@@ -190,3 +215,6 @@ class DjangoCardanoTestCase(TestCase):
             asset_name=asset_name,
             metadata=tx_metadata,
         )
+
+        # Scrap the generated policy script and associated keys
+        shutil.rmtree(data_path_for_model(policy))
