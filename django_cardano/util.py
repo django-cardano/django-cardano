@@ -114,6 +114,7 @@ class CardanoUtils:
             ex: bundle_size = 6 + roundupBytesToWords(((numAssets B) * 12) +
                 (sumAssetNameLengths B) + ((numPids B) * pid_size))
 
+        TODO: Find an explanation for the '6' and '12' numbers in the above formula
         See: https://cardano-ledger.readthedocs.io/en/latest/explanations/min-utxo.html
         """
         bundle_info = cls.token_bundle_info(token_bundle)
@@ -125,7 +126,10 @@ class CardanoUtils:
 
         byte_count = (len(asset_ids) * 12) + asset_name_lengths
         for policy_id in policy_ids:
-            byte_count += len(policy_id)
+            # Note that policy IDs are represented as hexadecimal byte strings,
+            # and one byte will contain two hex values, hence the division by 2.
+            # Ex: 0xAF = 10101111 = one byte
+            byte_count += math.ceil(len(policy_id) / 2)
 
         bundle_size = 6 + roundup_bytes_to_words(byte_count)
         return bundle_size
@@ -153,5 +157,5 @@ class CardanoUtils:
         bundle_size = cls.token_bundle_size(token_bundle)
         return max(
             min_utxo_value,
-            (quot(min_utxo_value, ada_only_utxo_size)) * (utxo_entry_size_without_val + bundle_size)
+            quot(min_utxo_value, ada_only_utxo_size) * (utxo_entry_size_without_val + bundle_size)
         )
