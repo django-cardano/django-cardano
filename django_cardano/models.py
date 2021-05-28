@@ -82,7 +82,7 @@ def file_upload_path(instance, filename):
 
 
 class MintingPolicyManager(models.Manager):
-    def create(self, password, valid_before_slot, **kwargs):
+    def create(self, password, invalid_before=None, invalid_hereafter=None, **kwargs):
         policy = self.model(**kwargs)
 
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -113,15 +113,23 @@ class MintingPolicyManager(models.Manager):
             })
 
             # 3. Construct the policy script and attach to the Policy record
+            scripts = [{
+                'keyHash': policy_key_hash,
+                'type': 'sig',
+            }]
+            if invalid_before:
+                scripts.append({
+                    'type': 'after',
+                    'slot': invalid_before,
+                })
+            if invalid_hereafter:
+                scripts.append({
+                    'type': 'before',
+                    'slot': invalid_hereafter,
+                })
             policy_script_data = json.dumps({
                 'type': 'all',
-                'scripts': [{
-                    'keyHash': policy_key_hash,
-                    'type': 'sig',
-                }, {
-                    'type': 'before',
-                    'slot': valid_before_slot,
-                }]
+                'scripts': scripts
             })
             with ContentFile(policy_script_data) as file_content:
                 policy.script.save('policy.script.json', file_content, save=False)
@@ -164,6 +172,14 @@ class AbstractMintingPolicy(models.Model):
 
     def __str__(self):
         return self.name if self.name else self.policy_id
+
+    @property
+    def script_data(self):
+        if not self.script:
+            return None
+
+        with open(self.script.path, 'r') as script_file_path:
+            return json.load(script_file_path)
 
 
 class MintingPolicy(AbstractMintingPolicy):
@@ -810,9 +826,8 @@ class AbstractWallet(models.Model):
         transaction.minting_policy = policy
         transaction.minting_password = minting_password
 
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.TOKEN_DUST
+        # Compute the amount of lovelace required to accompany this token bundle
+        token_dust = CardanoUtils.min_token_dust_value(mint_argument)
         
         total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
@@ -838,11 +853,18 @@ class AbstractWallet(models.Model):
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{surplus_address}+{lovelace_to_return - tx_fee}')
 
+            invalid_hereafter = None
+            for script in policy.script_data['scripts']:
+                if script['type'] == 'before':
+                    invalid_hereafter = script['slot']
+                    break
+
             transaction.submit(
                 wallet=self,
                 fee=tx_fee,
                 password=spending_password,
                 mint=mint_argument,
+                invalid_hereafter=invalid_hereafter
             )
 
             # Let successful transactions be persisted to the database

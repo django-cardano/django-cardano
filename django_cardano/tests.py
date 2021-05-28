@@ -68,6 +68,11 @@ class CardanoUtilTestCase(TestCase):
         bundle_size = CardanoUtils.token_bundle_size(DEFAULT_TOKEN_BUNDLE)
         self.assertEqual(bundle_size, 30)
 
+    def test_min_token_dust_value(self):
+        min_token_dust_value = CardanoUtils.min_token_dust_value(DEFAULT_TOKEN_BUNDLE)
+        print('How to validate this???', min_token_dust_value)
+
+
 class DjangoCardanoTestCase(TestCase):
     wallet = None
 
@@ -171,11 +176,11 @@ class DjangoCardanoTestCase(TestCase):
 
     def test_create_minting_policy(self):
         tip = CardanoUtils.query_tip()
-        valid_before_slot = tip['slot'] + django_cardano_settings.DEFAULT_TRANSACTION_TTL
+        invalid_hereafter = tip['slot'] + django_cardano_settings.DEFAULT_TRANSACTION_TTL
 
         minting_policy = MintingPolicy.objects.create(
             password=DEFAULT_SPENDING_PASSWORD,
-            valid_before_slot=valid_before_slot,
+            invalid_hereafter=invalid_hereafter,
         )
         policy_script_path = Path(minting_policy.script.path)
         self.assertTrue(policy_script_path.exists())
@@ -189,7 +194,7 @@ class DjangoCardanoTestCase(TestCase):
 
         policy = MintingPolicy.objects.create(
             password=DEFAULT_MINTING_PASSWORD,
-            valid_before_slot=invalid_hereafter,
+            invalid_hereafter=invalid_hereafter,
         )
         asset_name = 'TestNFT'
 

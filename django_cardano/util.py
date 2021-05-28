@@ -151,8 +151,7 @@ class CardanoUtils:
         ada_only_utxo_size = utxo_entry_size_without_val + settings.COIN_SIZE
 
         bundle_size = cls.token_bundle_size(token_bundle)
-        min_lovelace = max(
+        return max(
             min_utxo_value,
             (quot(min_utxo_value, ada_only_utxo_size)) * (utxo_entry_size_without_val + bundle_size)
         )
-        return min_lovelace
