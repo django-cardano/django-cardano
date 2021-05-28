@@ -103,10 +103,10 @@ class MintingPolicyManager(models.Manager):
             }.items():
                 with open(file_path, 'rb') as fp:
                     filename = file_path.name
-                    fCiph = io.BytesIO()
-                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    f_ciph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), f_ciph, password, ENCRYPTION_BUFFER_SIZE)
                     file_field = getattr(policy, field_name)
-                    file_field.save(f'{filename}.aes', fCiph, save=False)
+                    file_field.save(f'{filename}.aes', f_ciph, save=False)
 
             policy_key_hash = CardanoCLI.run('address key-hash', **{
                 'payment-verification-key-file': verification_key_path,
@@ -457,10 +457,10 @@ class WalletManager(models.Manager):
             }.items():
                 with open(file_path, 'rb') as fp:
                     filename = file_path.name
-                    fCiph = io.BytesIO()
-                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    f_ciph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), f_ciph, password, ENCRYPTION_BUFFER_SIZE)
                     file_field = getattr(wallet, field_name)
-                    file_field.save(f'{filename}.aes', fCiph, save=False)
+                    file_field.save(f'{filename}.aes', f_ciph, save=False)
 
         wallet.save(force_insert=True, using=self.db)
         return wallet
@@ -599,7 +599,7 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
             transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{lovelace_to_return}')
@@ -729,7 +729,7 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{remaining_lovelace - tx_fee}')
 
@@ -771,7 +771,7 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{surplus_lovelace - tx_fee}')
 
@@ -849,7 +849,7 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{surplus_address}+{lovelace_to_return - tx_fee}')
 
@@ -863,7 +863,7 @@ class AbstractWallet(models.Model):
                 wallet=self,
                 fee=tx_fee,
                 password=spending_password,
-                mint=mint_argument,
+                mint=token_bundle,
                 invalid_hereafter=invalid_hereafter
             )
 
