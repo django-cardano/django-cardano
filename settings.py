@@ -75,7 +75,6 @@ STATIC_URL = '/static/'
 # ------------------------------------------------------------------------------
 DJANGO_CARDANO = {
     'NETWORK': 'testnet',
-    'TOKEN_DUST': 1650000,
 }
 
 DJANGO_CARDANO_MINTING_POLICY_MODEL = 'django_cardano.MintingPolicy'
