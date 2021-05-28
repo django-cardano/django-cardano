@@ -82,7 +82,7 @@ def file_upload_path(instance, filename):
 
 
 class MintingPolicyManager(models.Manager):
-    def create(self, password, valid_before_slot, **kwargs):
+    def create(self, password, invalid_before=None, invalid_hereafter=None, **kwargs):
         policy = self.model(**kwargs)
 
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -103,25 +103,33 @@ class MintingPolicyManager(models.Manager):
             }.items():
                 with open(file_path, 'rb') as fp:
                     filename = file_path.name
-                    fCiph = io.BytesIO()
-                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    f_ciph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), f_ciph, password, ENCRYPTION_BUFFER_SIZE)
                     file_field = getattr(policy, field_name)
-                    file_field.save(f'{filename}.aes', fCiph, save=False)
+                    file_field.save(f'{filename}.aes', f_ciph, save=False)
 
             policy_key_hash = CardanoCLI.run('address key-hash', **{
                 'payment-verification-key-file': verification_key_path,
             })
 
             # 3. Construct the policy script and attach to the Policy record
+            scripts = [{
+                'keyHash': policy_key_hash,
+                'type': 'sig',
+            }]
+            if invalid_before:
+                scripts.append({
+                    'type': 'after',
+                    'slot': invalid_before,
+                })
+            if invalid_hereafter:
+                scripts.append({
+                    'type': 'before',
+                    'slot': invalid_hereafter,
+                })
             policy_script_data = json.dumps({
                 'type': 'all',
-                'scripts': [{
-                    'keyHash': policy_key_hash,
-                    'type': 'sig',
-                }, {
-                    'type': 'before',
-                    'slot': valid_before_slot,
-                }]
+                'scripts': scripts
             })
             with ContentFile(policy_script_data) as file_content:
                 policy.script.save('policy.script.json', file_content, save=False)
@@ -164,6 +172,14 @@ class AbstractMintingPolicy(models.Model):
 
     def __str__(self):
         return self.name if self.name else self.policy_id
+
+    @property
+    def script_data(self):
+        if not self.script:
+            return None
+
+        with open(self.script.path, 'r') as script_file_path:
+            return json.load(script_file_path)
 
 
 class MintingPolicy(AbstractMintingPolicy):
@@ -441,10 +457,10 @@ class WalletManager(models.Manager):
             }.items():
                 with open(file_path, 'rb') as fp:
                     filename = file_path.name
-                    fCiph = io.BytesIO()
-                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), fCiph, password, ENCRYPTION_BUFFER_SIZE)
+                    f_ciph = io.BytesIO()
+                    pyAesCrypt.encryptStream(io.BytesIO(fp.read()), f_ciph, password, ENCRYPTION_BUFFER_SIZE)
                     file_field = getattr(wallet, field_name)
-                    file_field.save(f'{filename}.aes', fCiph, save=False)
+                    file_field.save(f'{filename}.aes', f_ciph, save=False)
 
         wallet.save(force_insert=True, using=self.db)
         return wallet
@@ -538,8 +554,6 @@ class AbstractWallet(models.Model):
         return all_tokens, utxos
 
     def send_lovelace(self, quantity, to_address, password=None) -> AbstractTransaction:
-        from_address = self.payment_address
-
         # The protocol's declared txFeeFixed will give us a fair estimate
         # of how much the fee for this transaction will be.
         protocol_parameters = CardanoUtils.refresh_protocol_parameters()
@@ -569,7 +583,7 @@ class AbstractWallet(models.Model):
         #   - The "change" being returned to the sender
         transaction.outputs = [
             ('tx-out', f'{to_address}+{quantity}'),
-            ('tx-out', f'{from_address}+{total_lovelace_being_sent}'),
+            ('tx-out', f'{self.payment_address}+{total_lovelace_being_sent}'),
         ]
 
         # Draft the transaction:
@@ -585,10 +599,10 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             lovelace_to_return = total_lovelace_being_sent - quantity - tx_fee
-            transaction.outputs[-1] = ('tx-out', f'{from_address}+{lovelace_to_return}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{lovelace_to_return}')
 
             # Let successful transactions be persisted to the database
             transaction.submit(wallet=self, fee=tx_fee, password=password)
@@ -597,8 +611,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def send_tokens(self, asset_id, quantity, to_address, password=None) -> AbstractTransaction:
-        payment_address = self.payment_address
-
         utxos = self.utxos
         sorted_lovelace_utxos = sort_utxos(self.lovelace_utxos)
         token_utxos = sort_utxos(filter_utxos(utxos, include=asset_id), type=asset_id)
@@ -637,22 +649,22 @@ class AbstractWallet(models.Model):
 
         lovelace_to_return = total_lovelace_being_sent
 
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.TOKEN_DUST
-
         # Let the first transaction output represent the tokens being sent to the recipient
-        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+"{quantity} {asset_id}"')]
+        token_bundle = f'"{quantity} {asset_id}"'
+        token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+        transaction.outputs = [('tx-out', f'{to_address}+{token_dust}+{token_bundle}')]
         lovelace_to_return -= token_dust
 
         # If there are more tokens in this wallet than are being sent, return the rest to the sender
         tokens_to_return = total_tokens_being_sent - quantity
         if tokens_to_return > 0:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{tokens_to_return} {asset_id}"'))
+            token_bundle = f'"{tokens_to_return} {asset_id}"'
+            token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+{token_bundle}'))
             lovelace_to_return -= token_dust
 
         # The last output represents the lovelace being returned to the payment wallet
-        transaction.outputs.append(('tx-out', f'{payment_address}+{lovelace_to_return}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{lovelace_to_return}'))
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -667,7 +679,7 @@ class AbstractWallet(models.Model):
             # Calculate the change to return the payment address
             # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{lovelace_to_return - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{lovelace_to_return - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
@@ -677,7 +689,6 @@ class AbstractWallet(models.Model):
         return transaction
 
     def consolidate_utxos(self, password=None) -> AbstractTransaction:
-        payment_address = self.payment_address
         all_tokens, utxos = self.balance
 
         transaction_model_class = get_transaction_model()
@@ -696,15 +707,16 @@ class AbstractWallet(models.Model):
         for asset_id, asset_count in all_tokens.items():
             # HACK!! The amount of ADA accompanying a token needs to be computed
             # with respect to that token's properties
-            token_dust = cardano_settings.TOKEN_DUST
-            transaction.outputs.append(('tx-out', f'{payment_address}+{token_dust}+"{asset_count} {asset_id}"'))
+            token_bundle = f'"{asset_count} {asset_id}"'
+            token_dust = CardanoUtils.min_token_dust_value(token_bundle)
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{token_dust}+{token_bundle}'))
             remaining_lovelace -= token_dust
 
         # This output represents the remaining ADA.
         # It must be included in draft transaction in order to accurately compute the
         # minimum transaction fee. After the minimum fee has been calculated,
         # this output will be replaced by one that accounts for that fee.
-        transaction.outputs.append(('tx-out', f'{payment_address}+{remaining_lovelace}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{remaining_lovelace}'))
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
@@ -717,9 +729,9 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{remaining_lovelace - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{remaining_lovelace - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
@@ -746,12 +758,11 @@ class AbstractWallet(models.Model):
             transaction.inputs.append(('tx-in', f'{tx_hash}#{tx_index}'))
             surplus_lovelace += utxo['Tokens'][lovelace_unit]
 
-        payment_address = self.payment_address
         for value in values:
-            transaction.outputs.append(('tx-out', f'{payment_address}+{value}'))
+            transaction.outputs.append(('tx-out', f'{self.payment_address}+{value}'))
             surplus_lovelace -= value
         # This final output transaction shall contain the surplus (minus tx fee)
-        transaction.outputs.append(('tx-out', f'{payment_address}+{surplus_lovelace}'))
+        transaction.outputs.append(('tx-out', f'{self.payment_address}+{surplus_lovelace}'))
 
         transaction.generate_draft()
 
@@ -760,9 +771,9 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
-            transaction.outputs[-1] = ('tx-out', f'{payment_address}+{surplus_lovelace - tx_fee}')
+            transaction.outputs[-1] = ('tx-out', f'{self.payment_address}+{surplus_lovelace - tx_fee}')
 
             transaction.submit(wallet=self, fee=tx_fee, password=password)
 
@@ -803,7 +814,7 @@ class AbstractWallet(models.Model):
         asset_id = policy.policy_id
         if asset_name:
             asset_id = f'{asset_id}.{asset_name}'
-        mint_argument = f'"{quantity} {asset_id}"'
+        token_bundle = f'"{quantity} {asset_id}"'
 
         # Structure the token metadata according to the proposed "721" standard
         # See: https://www.reddit.com/r/CardanoDevelopers/comments/mkhlv8/nft_metadata_standard/
@@ -816,23 +827,21 @@ class AbstractWallet(models.Model):
         transaction.minting_policy = policy
         transaction.minting_password = minting_password
 
-        # HACK!! The amount of ADA accompanying a token needs to be computed
-        # with respect to that token's properties
-        token_dust = cardano_settings.TOKEN_DUST
-        
+        # Compute the amount of lovelace required to accompany this token bundle
+        token_dust = CardanoUtils.min_token_dust_value(token_bundle)
         total_lovelace_being_sent = payment_utxo['Tokens'][lovelace_unit]
         lovelace_to_return = total_lovelace_being_sent - token_dust
 
         transaction.inputs = [('tx-in', '{}#{}'.format(payment_utxo['TxHash'], payment_utxo['TxIx']))]
         transaction.outputs = [
-            ('tx-out', f'{to_address}+{token_dust}+{mint_argument}'),
+            ('tx-out', f'{to_address}+{token_dust}+{token_bundle}'),
             ('tx-out', f'{surplus_address}+{lovelace_to_return}')
         ]
 
         # Draft the transaction:
         # Produce a draft transaction in order to determine the fees required to perform the actual transaction
         # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#draft-the-transaction
-        transaction.generate_draft(mint=mint_argument)
+        transaction.generate_draft(mint=token_bundle)
 
         if spending_password is not None and minting_password is not None:
             # Calculate the fee
@@ -840,15 +849,22 @@ class AbstractWallet(models.Model):
             tx_fee = transaction.calculate_min_fee()
 
             # Calculate the change to return the payment address
-            # (minus transacction fee) and update that output respectively
+            # (minus transaction fee) and update that output respectively
             # https://docs.cardano.org/projects/cardano-node/en/latest/stake-pool-operations/simple_transaction.html#calculate-the-change-to-send-back-to-payment-addr
             transaction.outputs[-1] = ('tx-out', f'{surplus_address}+{lovelace_to_return - tx_fee}')
+
+            invalid_hereafter = None
+            for script in policy.script_data['scripts']:
+                if script['type'] == 'before':
+                    invalid_hereafter = script['slot']
+                    break
 
             transaction.submit(
                 wallet=self,
                 fee=tx_fee,
                 password=spending_password,
-                mint=mint_argument,
+                mint=token_bundle,
+                invalid_hereafter=invalid_hereafter
             )
 
             # Let successful transactions be persisted to the database

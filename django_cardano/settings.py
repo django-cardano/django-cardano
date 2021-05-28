@@ -13,8 +13,11 @@ DEFAULTS = {
     'LOVELACE_UNIT': 'lovelace',
     'NETWORK': 'mainnet',
     'NODE_SOCKET_PATH': os.environ.get('CARDANO_NODE_SOCKET_PATH'),
+    'PROTOCOL_TTL': 3600,
+    # Magic numbers
     'TESTNET_MAGIC': 1097911063,
-    'TOKEN_DUST': 2000000,
+    'COIN_SIZE': 0,
+    'UTXO_ENTRY_SIZE_WITHOUT_VAL': 27,
 }
 
 IMPORT_STRINGS = (
