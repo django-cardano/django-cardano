@@ -211,6 +211,9 @@ class AbstractTransaction(models.Model):
     outputs = models.JSONField(default=list)
     metadata = models.JSONField(blank=True, null=True)
 
+    minting_policy = None
+    minting_password = None
+
     class Meta:
         abstract = True
 
@@ -218,8 +221,6 @@ class AbstractTransaction(models.Model):
         super().__init__(*args, **kwargs)
 
         self.temp_directory = tempfile.TemporaryDirectory()
-        self.minting_policy = None
-        self.minting_password = None
 
     def __del__(self):
         self.temp_directory.cleanup()
@@ -266,6 +267,8 @@ class AbstractTransaction(models.Model):
                 'json-metadata-no-schema': None,
                 'metadata-json-file': self.metadata_file_path,
             })
+        if self.minting_policy:
+            cmd_kwargs['minting-script-file'] = str(self.minting_policy.script.path)
 
         CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -313,6 +316,9 @@ class AbstractTransaction(models.Model):
                 'metadata-json-file': self.metadata_file_path,
             })
 
+        if self.minting_policy:
+            cmd_kwargs['minting-script-file'] = str(self.minting_policy.script.path)
+
         CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
         # Sign the transaction
@@ -340,8 +346,6 @@ class AbstractTransaction(models.Model):
             )
 
         if self.minting_policy and self.minting_password:
-            signing_kwargs['script-file'] = self.minting_policy.script.path
-
             # Decrypt the policy signing key and store it as a temporary file
             try:
                 pyAesCrypt.decryptFile(
