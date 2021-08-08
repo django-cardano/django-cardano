@@ -32,6 +32,7 @@ TOKEN_BUNDLE_PARTS = [
 ]
 DEFAULT_TOKEN_BUNDLE = ' '.join(TOKEN_BUNDLE_PARTS)
 
+
 def data_path_for_model(instance):
     base_path = Path(django_cardano_settings.APP_DATA_PATH)
     model_name = slugify(instance._meta.verbose_name)
