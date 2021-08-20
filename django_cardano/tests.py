@@ -206,7 +206,6 @@ class DjangoCardanoTestCase(TestCase):
                         'name': 'django-cardano Test NFT',
                         'description': 'The Cardano Logo (in SVG format)',
                         'image': 'ipfs://QmS5gynkFMNFTnqPGgADxbvjutYmQK4Qh4iWwkSq4BhcmJ',
-
                     }
                 }
             }

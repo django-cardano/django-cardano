@@ -268,7 +268,7 @@ class AbstractTransaction(models.Model):
                 'metadata-json-file': self.metadata_file_path,
             })
         if self.minting_policy:
-            cmd_kwargs['minting-script-file'] = str(self.minting_policy.script.path)
+            cmd_kwargs['mint-script-file'] = str(self.minting_policy.script.path)
 
         CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
@@ -317,7 +317,7 @@ class AbstractTransaction(models.Model):
             })
 
         if self.minting_policy:
-            cmd_kwargs['minting-script-file'] = str(self.minting_policy.script.path)
+            cmd_kwargs['mint-script-file'] = str(self.minting_policy.script.path)
 
         CardanoCLI.run('transaction build-raw', *self.tx_args, **cmd_kwargs)
 
