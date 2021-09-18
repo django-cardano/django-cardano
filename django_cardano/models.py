@@ -17,6 +17,7 @@ from django.utils.text import slugify
 
 from .cli import (
     CardanoCLI,
+    ASSET_COUNT_RE,
     MIN_FEE_RE,
     UTXO_RE,
 )
@@ -519,19 +520,20 @@ class AbstractWallet(models.Model):
 
         lines = response.split('\n')
         for line in lines[2:]:
-            match = UTXO_RE.match(line)
+            utxo_match = UTXO_RE.match(line)
             utxo_info = {
-                'TxHash': match[1],
-                'TxIx': match[2],
+                'TxHash': utxo_match[1],
+                'TxIx': utxo_match[2],
                 'Tokens': {},
             }
 
-            tokens = match[3].split('+')
+            tokens = utxo_match[3].split('+')
             for token in tokens:
-                token_info = token.split()
-                asset_count = int(token_info[0])
-                asset_type = token_info[1]
-                utxo_info['Tokens'][asset_type] = asset_count
+                token_match = ASSET_COUNT_RE.match(token.strip())
+                if token_match:
+                    asset_count = int(token_match[1])
+                    asset_type = token_match[2]
+                    utxo_info['Tokens'][asset_type] = asset_count
 
             utxos.append(utxo_info)
 

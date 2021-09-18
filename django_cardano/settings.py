@@ -17,6 +17,7 @@ DEFAULTS = {
     # Magic numbers
     'TESTNET_MAGIC': 1097911063,
     'COIN_SIZE': 0,
+    'MIN_UTXO_VALUE': 1000000,
     'UTXO_ENTRY_SIZE_WITHOUT_VAL': 27,
 }
 
