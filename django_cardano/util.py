@@ -149,8 +149,14 @@ class CardanoUtils:
 
         :return: Amount of lovelace (a.k.a. "dust") to accompany a UTxO containing non-ADA tokens
         """
-        protocol_parameters = cls.refresh_protocol_parameters()
-        min_utxo_value = protocol_parameters['minUTxOValue']
+        # protocol_parameters = cls.refresh_protocol_parameters()
+        # min_utxo_value = protocol_parameters['minUTxOValue']
+
+        # HACK! This protocol value _used_ to be 1000000 prior to the Alonzo upgrade
+        # and it is now being reported as 'null'. Presumably we are henceforth
+        # expected to use the `cardano-cli transaction calculate-min-required-utxo`
+        # command, so we'll need to look into this.
+        min_utxo_value = settings.MIN_UTXO_VALUE
         utxo_entry_size_without_val = settings.UTXO_ENTRY_SIZE_WITHOUT_VAL
         ada_only_utxo_size = utxo_entry_size_without_val + settings.COIN_SIZE
 
