@@ -819,7 +819,8 @@ class AbstractWallet(models.Model):
         # https://docs.cardano.org/en/latest/native-tokens/getting-started-with-native-tokens.html#syntax-of-multi-asset-values
         asset_id = policy.policy_id
         if asset_name:
-            asset_id = f'{asset_id}.{asset_name}'
+            asset_hex = asset_name.encode('utf-8').hex()
+            asset_id = f'{asset_id}.{asset_hex}'
         token_bundle = f'"{quantity} {asset_id}"'
 
         # Structure the token metadata according to the proposed "721" standard
