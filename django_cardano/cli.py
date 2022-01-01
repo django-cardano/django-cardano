@@ -66,13 +66,13 @@ class CardanoCLI:
             # Iff the CLI command being invoked is "transaction build-raw",
             # issue the stringified command in shell mode.
             #
-            # The reason for this is that  when performing a transaction
+            # The reason for this is that when performing a transaction
             # that involved native tokens, the --tx-out argument(s) contain
             # a space (ex: <addr>+<lovelace>+"<quantity> <asset_id>").
             #
             # For whatever reason, subprocess.run(...) does not permit the use
             # of arguments containing spaces, thus the composed/executed command
-            # is not of the intended form and will consequently fail.
+            # is not of the intended form and will therefore fail.
             #
             # Enabling shell mode allows the command to be invoked with spaces
             # and quotation characters intact.
