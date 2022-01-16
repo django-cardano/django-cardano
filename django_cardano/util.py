@@ -6,7 +6,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .cli import CardanoCLI
+from .cli import (
+    CardanoCLI,
+    ASSET_COUNT_RE,
+    UTXO_RE,
+)
 from .settings import django_cardano_settings as settings
 
 TOKEN_BUNDLE_RE = re.compile(r'(?:\".*?\"|\S)+')
@@ -54,6 +58,38 @@ class CardanoUtils:
     def query_tip(cls) -> dict:
         response = CardanoCLI.run('query tip', network=settings.NETWORK)
         return json.loads(response)
+
+    @classmethod
+    def query_utxos(cls, address) -> list:
+        utxos = []
+
+        response = CardanoCLI.run(
+            'query utxo',
+            address=address,
+            network=settings.NETWORK
+        )
+
+        lines = response.split('\n')
+        for line in lines[2:]:
+            utxo_match = UTXO_RE.match(line)
+            utxo_info = {
+                'TxHash': utxo_match[1],
+                'TxIx': utxo_match[2],
+                'Tokens': {},
+            }
+
+            tokens = utxo_match[3].split('+')
+            for token in tokens:
+                token_match = ASSET_COUNT_RE.match(token.strip())
+                if token_match:
+                    asset_count = int(token_match[1])
+                    asset_type = token_match[2]
+                    utxo_info['Tokens'][asset_type] = asset_count
+
+            utxos.append(utxo_info)
+
+        return utxos
+
 
     @classmethod
     def address_info(cls, address):

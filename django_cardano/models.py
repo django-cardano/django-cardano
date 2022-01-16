@@ -510,34 +510,7 @@ class AbstractWallet(models.Model):
 
     @property
     def utxos(self) -> list:
-        utxos = []
-
-        response = CardanoCLI.run(
-            'query utxo',
-            address=self.payment_address,
-            network=cardano_settings.NETWORK
-        )
-
-        lines = response.split('\n')
-        for line in lines[2:]:
-            utxo_match = UTXO_RE.match(line)
-            utxo_info = {
-                'TxHash': utxo_match[1],
-                'TxIx': utxo_match[2],
-                'Tokens': {},
-            }
-
-            tokens = utxo_match[3].split('+')
-            for token in tokens:
-                token_match = ASSET_COUNT_RE.match(token.strip())
-                if token_match:
-                    asset_count = int(token_match[1])
-                    asset_type = token_match[2]
-                    utxo_info['Tokens'][asset_type] = asset_count
-
-            utxos.append(utxo_info)
-
-        return utxos
+        return CardanoUtils.query_utxos(self.payment_address)
 
     @property
     def lovelace_utxos(self) -> list:
