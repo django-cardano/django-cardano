@@ -1,9 +1,12 @@
+import bech32
 import json
 import math
 import os
 import re
+
 from collections import defaultdict
 from datetime import datetime, timezone
+from hashlib import blake2b
 from pathlib import Path
 
 from .cli import (
@@ -22,6 +25,26 @@ def quot(a: int, b: int) -> int:
 
 def roundup_bytes_to_words(b: int) -> int:
     return quot(b + 7, 8)
+
+
+def asset_id_to_fingerprint(asset_id):
+    """
+    See: https://github.com/cardano-foundation/CIPs/tree/master/CIP-0014
+    :param asset_id: concatenation of policy ID and hexadecimal asset name
+    :return: bech32-encoded blake2b-160 digest of the concatenation of the policy id and the asset name.
+    """
+    asset_id_bytes = bytes(asset_id, 'ascii')
+    blake2b_encoded_asset_id = blake2b(asset_id_bytes, digest_size=20)
+    blake2b_encoded_bytes = blake2b_encoded_asset_id.digest()
+
+    target_fingerprint = 'asset1kawfzz8pw0flaj9r9ugums4wcnt7ne4wm5fakj'
+    for i in range(0, 100):
+        fingerprint = bech32.encode('asset', i, blake2b_encoded_bytes)
+        print(fingerprint)
+        if fingerprint == target_fingerprint:
+            print('witver', i)
+
+    raise NotImplementedError
 
 
 class CardanoUtils:
@@ -89,7 +112,6 @@ class CardanoUtils:
             utxos.append(utxo_info)
 
         return utxos
-
 
     @classmethod
     def address_info(cls, address):
