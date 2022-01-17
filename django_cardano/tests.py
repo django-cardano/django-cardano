@@ -14,7 +14,10 @@ from .models import (
     get_wallet_model,
 )
 from .settings import django_cardano_settings
-from .util import CardanoUtils
+from .util import (
+    CardanoUtils,
+    asset_id_to_fingerprint,
+)
 
 MintingPolicy = get_minting_policy_model()
 Transaction = get_transaction_model()
@@ -40,6 +43,13 @@ def data_path_for_model(instance):
 
 
 class CardanoUtilTestCase(TestCase):
+    def test_asset_id_to_fingerprint(self):
+        policy_id = '24b5f9735a77c82091dbd7381ca887da26cf45c35986038b0e6a3522'
+        asset_name = '47616c6163746963375a656e697468393939'
+        asset_id = policy_id + asset_name
+        fingerprint = asset_id_to_fingerprint(asset_id)
+        self.assertEqual(fingerprint, 'asset1xu3mp80q7a3p3kpsa2c5pp9gjzyyyadlr88t33')
+
     def test_query_tip(self):
         tip_info = CardanoUtils.query_tip()
 

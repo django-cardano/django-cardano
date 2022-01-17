@@ -33,18 +33,11 @@ def asset_id_to_fingerprint(asset_id):
     :param asset_id: concatenation of policy ID and hexadecimal asset name
     :return: bech32-encoded blake2b-160 digest of the concatenation of the policy id and the asset name.
     """
-    asset_id_bytes = bytes(asset_id, 'ascii')
+    asset_id_bytes = bytearray.fromhex(asset_id)
     blake2b_encoded_asset_id = blake2b(asset_id_bytes, digest_size=20)
-    blake2b_encoded_bytes = blake2b_encoded_asset_id.digest()
-
-    target_fingerprint = 'asset1kawfzz8pw0flaj9r9ugums4wcnt7ne4wm5fakj'
-    for i in range(0, 100):
-        fingerprint = bech32.encode('asset', i, blake2b_encoded_bytes)
-        print(fingerprint)
-        if fingerprint == target_fingerprint:
-            print('witver', i)
-
-    raise NotImplementedError
+    eight_bit_data = blake2b_encoded_asset_id.digest()
+    five_bit_data = bech32.convertbits(eight_bit_data, 8, 5)
+    return bech32.bech32_encode('asset', five_bit_data)
 
 
 class CardanoUtils:
